@@ -116,6 +116,7 @@
   <button class="primary" id="btnRun" title="단계를 순서대로 실행합니다.">Run Full Process</button>
   <button id="btnParallelHealth" title="같은 시각에 /health 5번을 동시에 호출합니다">Test: 5 parallel /health</button>
   <button id="btnParallelSession" title="같은 시각에 /session/create 5번을 동시에 호출합니다">Test: 5 parallel sessions</button>
+  <button id="btnExtractUt" title="① 초기 URL → ② vmLoadBaseUrl 로 스크립트 로드 후 pV.u / pV.u.t 추출 (POST /test/extract-ut)">Test: extract u · t (vm)</button>
   <button id="btnHealth">Health Check</button>
   <button id="btnSessions">List Sessions</button>
   <button id="btnClear">Clear Log</button>
@@ -243,6 +244,36 @@ document.getElementById("btnParallelSession").onclick = async () => {
     const out = await Promise.all(ps);
     log("done in " + (Date.now() - t0) + "ms", "info");
     resultEl.textContent = JSON.stringify(out, null, 2);
+  } catch (e) {
+    log("ERROR: " + (e.message || e), "err");
+  }
+};
+
+/* ─── Test: extract u · t (vmLoadBaseUrl과 동일 입력) ─── */
+document.getElementById("btnExtractUt").onclick = async () => {
+  logEl.textContent = "";
+  resultEl.textContent = "";
+  try {
+    await ensureBrowserModeForRun();
+    const createUrl = document.getElementById("pCreateUrl").value.trim();
+    const vmLoadBaseUrl = document.getElementById("pVmUrl").value.trim();
+    const timeout = parseInt(document.getElementById("pTimeout").value, 10) || 60000;
+    const waitUntilUrlContains = document.getElementById("pWaitUrlContains").value.trim();
+    if (!vmLoadBaseUrl) {
+      log("② vmLoadBaseUrl(pVmUrl)이 비어 있습니다.", "err");
+      return;
+    }
+    log("========================================", "step");
+    log("[extract-ut] POST /test/extract-ut (① createUrl + ② vmLoadBaseUrl)", "step");
+    log("========================================", "step");
+    const body = { createUrl, vmLoadBaseUrl, timeout };
+    if (waitUntilUrlContains) body.waitUntilUrlContains = waitUntilUrlContains;
+    const t0 = Date.now();
+    const out = await nodePost("/test/extract-ut", body);
+    logResponse("[응답] POST /test/extract-ut", out, 20000);
+    log("Elapsed: " + (Date.now() - t0) + "ms", "data");
+    resultEl.textContent = JSON.stringify(out, null, 2);
+    if (out.error && !out.ok) log("실패: " + out.error, "err");
   } catch (e) {
     log("ERROR: " + (e.message || e), "err");
   }

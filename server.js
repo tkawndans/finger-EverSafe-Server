@@ -41,13 +41,23 @@ function findChromePath() {
 let browser = null;
 let headful = process.env.PUPPETEER_HEADFUL === "1";
 
+/** Fiddler 등에 Chromium(XHR) 트래픽까지 잡히게: 예 http://127.0.0.1:8888 */
+const PUPPETEER_PROXY = (process.env.PUPPETEER_PROXY || "").trim();
+
 async function launchBrowser() {
   const execPath = findChromePath();
+  const args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"];
+  if (PUPPETEER_PROXY) {
+    args.push(`--proxy-server=${PUPPETEER_PROXY}`);
+    const bypass = (process.env.PUPPETEER_PROXY_BYPASS || "").trim();
+    if (bypass) args.push(`--proxy-bypass-list=${bypass}`);
+  }
   console.log(`[browser] launching (headful=${headful}, exec=${execPath || "bundled"})`);
+  if (PUPPETEER_PROXY) console.log(`[browser] Chromium proxy: ${PUPPETEER_PROXY}`);
   browser = await puppeteer.launch({
     headless: !headful,
     executablePath: execPath || undefined,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    args,
   });
   browser.on("disconnected", () => {
     console.log("[browser] disconnected — will relaunch");
@@ -130,6 +140,34 @@ function parseCookieString(str, url) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+/** undici/fetch 실패 시 cause 체인을 한 줄로 (Fiddler·TLS 디버깅용) */
+function formatFetchError(err) {
+  const parts = [err && err.message ? err.message : String(err)];
+  let c = err && err.cause;
+  for (let i = 0; c && i < 6; i++) {
+    const m = c.message || String(c);
+    if (m && !parts.includes(m)) parts.push(m);
+    c = c.cause;
+  }
+  return parts.join(" | ");
+}
+
+/** HTML 또는 전역에서 `var TNK_SR = '...'` 형태 값 추출 */
+async function extractTnkSrFromPage(page) {
+  const html = await page.content();
+  const m = html.match(/var\s+TNK_SR\s*=\s*['"]([^'"]*)['"]\s*;?/i);
+  if (m) return m[1];
+  return page.evaluate(() => {
+    try {
+      if (typeof TNK_SR !== "undefined") return TNK_SR;
+      const g = typeof globalThis !== "undefined" ? globalThis : window;
+      return g.TNK_SR != null ? String(g.TNK_SR) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+}
+
 /* ─────────────────── VM script download (Node-side) ─────────────────── */
 
 async function fetchVmScript(baseUrl, page) {
@@ -139,9 +177,20 @@ async function fetchVmScript(baseUrl, page) {
   const cookies = await page.cookies();
   const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
-  const res = await fetch(fullUrl, {
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
-  });
+  let res;
+  try {
+    res = await fetch(fullUrl, {
+      headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    });
+  } catch (e) {
+    const detail = formatFetchError(e);
+    const tlsHint =
+      /certificate|SSL|TLS|UNABLE_TO_VERIFY|self-signed|cert/i.test(detail) &&
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED !== "0"
+        ? " [Fiddler 등 HTTPS 가로채기 시: 같은 세션에서 $env:NODE_TLS_REJECT_UNAUTHORIZED='0' (개발 전용) 후 서버 재시작]"
+        : "";
+    throw new Error(`VM script fetch failed: ${detail}${tlsHint}`);
+  }
   if (!res.ok) throw new Error(`VM script fetch failed: HTTP ${res.status}`);
   const scriptText = await res.text();
   return { scriptText, fullUrl };
@@ -169,7 +218,10 @@ function buildXhrPostCode(targetUrl, payload, contentType) {
           let data;
           const respCT = xhr.getResponseHeader('Content-Type') || '';
           const raw = xhr.responseText || '';
+          var trimmed = (raw || '').trim();
           if (respCT.includes('json')) {
+            try { data = JSON.parse(raw); } catch(_) { data = raw.substring(0, 2000); }
+          } else if (trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') {
             try { data = JSON.parse(raw); } catch(_) { data = raw.substring(0, 2000); }
           } else {
             data = raw.substring(0, 2000);
@@ -261,16 +313,30 @@ app.post("/browser/headful", async (req, res) => {
 
 app.post("/session/create", async (req, res) => {
   try {
-    const { url, cookies, headers, timeout, waitUntilUrlContains } = req.body || {};
+    const {
+      url,
+      cookies,
+      headers,
+      timeout,
+      waitUntilUrlContains,
+      extractTnkSr,
+      extractTnkSrWaitMs,
+    } = req.body || {};
     const page = await createPage();
     const sessionId = randomUUID();
     sessions.set(sessionId, { page, createdAt: Date.now(), lastUsed: Date.now() });
 
+    const result = { sessionId };
     let finalUrl;
     if (url) {
       finalUrl = await gotoAndWait(page, url, { cookies, headers, timeout, waitUntilUrlContains });
+      if (extractTnkSr) {
+        const w = Number(extractTnkSrWaitMs);
+        if (Number.isFinite(w) && w > 0) await sleep(Math.min(w, 60_000));
+        const tnk = await extractTnkSrFromPage(page);
+        if (tnk != null) result.TNK_SR = tnk;
+      }
     }
-    const result = { sessionId };
     if (finalUrl) result.finalUrl = finalUrl;
     res.json(result);
   } catch (e) {
@@ -369,7 +435,7 @@ app.post("/evaluate", async (req, res) => {
 
 if (process.env.ENABLE_TEST_PAGE !== "0") {
   const registerTestRoutes = require("./test");
-  registerTestRoutes(app);
+  registerTestRoutes(app, { createPage, fetchVmScript, gotoAndWait });
 }
 
 /* ─── Startup ─── */
