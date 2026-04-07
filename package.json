@@ -1,0 +1,22 @@
+{
+  "name": "node-js-executor",
+  "version": "1.0.0",
+  "description": "Node.js server that executes JavaScript code in a real browser environment via Puppeteer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "puppeteer",
+    "javascript",
+    "executor",
+    "browser"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1",
+    "puppeteer": "^24.40.0",
+    "undici": "^6.21.3"
+  }
+}

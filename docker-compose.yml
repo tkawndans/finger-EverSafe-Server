@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      # 헤드리스 기본 (Docker에서는 창 없음)
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      # 테스트 페이지 필요 시 1 로 두고 test/ 폴더가 이미지에 있어야 함 (Dockerfile에 COPY test 있음)
+      ENABLE_TEST_PAGE: "0"

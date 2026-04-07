@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NodeServer — Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #1a1d23; color: #e8eaed; }
+    h1 { font-size: 1.1rem; margin: 0 0 12px; }
+    .top-bar { display: flex; align-items: center; gap: 16px; padding: 16px 16px 0; max-width: 1400px; margin: 0 auto; }
+    .top-bar .status { font-size: 13px; color: #9aa0a6; }
+    .container { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 16px 12px; max-width: 1400px; margin: 0 auto; }
+    .panel { flex: 1 1 420px; background: #252830; border-radius: 8px; padding: 12px; min-height: 120px; }
+    .panel-header { font-weight: 600; margin-bottom: 8px; color: #9aa0a6; font-size: 0.85rem; }
+    .body-input { width: 100%; min-height: 90px; font-family: ui-monospace, monospace; font-size: 12px;
+      background: #1e2128; border: 1px solid #3c4043; border-radius: 4px; color: #e8eaed; padding: 8px; resize: vertical; }
+    #log { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; max-height: 320px; overflow: auto; color: #bdc1c6; }
+    #result { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; max-height: 320px; overflow: auto; }
+    .btn-bar { padding: 0 16px 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 1400px; margin: 0 auto; }
+    button { padding: 8px 14px; border-radius: 6px; border: 1px solid #5f6368; background: #30343c; color: #e8eaed; cursor: pointer; font-size: 13px; }
+    button:hover { background: #3c4048; }
+    button.primary { background: #1a73e8; border-color: #1a73e8; }
+    button.primary:hover { background: #1967d2; }
+    .divider { width: 100%; height: 1px; background: #3c4043; margin: 4px 0; }
+    .preset-cfg { background: #252830; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    .preset-cfg label { display: block; font-size: 0.8rem; color: #bdc1c6; margin-bottom: 4px; }
+    .preset-cfg input { width: 100%; padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 12px;
+      background: #1e2128; border: 1px solid #3c4043; border-radius: 4px; color: #e8eaed; margin-bottom: 8px; }
+    .preset-cfg .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .preset-cfg .row > div { flex: 1 1 200px; }
+    .browser-head-group { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px;
+      padding: 8px 12px; background: #252830; border-radius: 8px; border: 1px solid #3c4043; }
+    .browser-head-group .bh-title { font-size: 0.8rem; color: #9aa0a6; margin-right: 4px; }
+    .browser-head-group label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+      font-size: 13px; color: #e8eaed; user-select: none; }
+    .browser-head-group input[type="radio"] { accent-color: #8ab4f8; width: 16px; height: 16px; }
+    #browserHeadStatus { font-size: 12px; color: #81c995; margin-left: auto; }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="top-bar" style="flex-wrap: wrap;">
+  <h1>프리셋 설정</h1>
+  <div class="browser-head-group" title="기본은 헤드리스. Run / parallel sessions 실행 시 선택한 모드로 서버에 반영됩니다.">
+    <span class="bh-title">Chromium</span>
+    <label><input type="radio" name="browserHead" id="radioHeadless" value="headless" checked /> 헤드리스 (기본 · 창 없음)</label>
+    <label><input type="radio" name="browserHead" id="radioHeadful" value="headful" /> 헤드풀 (디버깅 시)</label>
+    <span id="browserHeadStatus"></span>
+  </div>
+  <div class="status">Base: <span id="baseUrl"></span></div>
+</div>
+
+<!-- ═══════════ 프리셋 설정 ═══════════ -->
+<div class="container" style="padding-top:12px;">
+  <div class="panel" style="flex: 2 1 700px;">
+    <div class="preset-cfg">
+      <div class="row">
+        <div>
+          <label>① 초기 접속 URL (session/create)</label>
+          <input id="pCreateUrl" value="https://bank.jejubank.co.kr:6443/inbank/websquare/serverTimeZone.wq" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>② 보안 스크립트 URL (vmLoadBaseUrl)</label>
+          <input id="pVmUrl" value="https://bank.jejubank.co.kr:6443/inbank/footer.do?evfw=v" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>③ XHR 대상 URL (targetUrl)</label>
+          <input id="pTargetUrl" value="https://bank.jejubank.co.kr:6443/inbank/itfc/MSOEBB081406S2.do" />
+        </div>
+        <div>
+          <label>③ Content-Type</label>
+          <input id="pContentType" value="application/json" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>③ Payload (JSON 또는 문자열)</label>
+          <textarea class="body-input" id="pPayload" style="min-height:80px;">{"DATA":{"iqryDiv":"K"},"pagingInfo":{"pageNo":1,"pageSize":100},"ipinsideData":{"ipinsideData":"","ipinsideNAT":"","ipinsideCOMM":""}}</textarea>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Timeout (ms)</label>
+          <input id="pTimeout" value="60000" />
+        </div>
+        <div>
+          <label>① goto 후 URL에 이 문자열이 포함될 때까지 대기 (선택 · 예: intro.do)</label>
+          <input id="pWaitUrlContains" placeholder="비우면 대기 안 함" value="" />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Console / Result ═══════════ -->
+<div class="container">
+  <div class="panel">
+    <div class="panel-header">Console Log</div>
+    <div id="log"></div>
+  </div>
+  <div class="divider"></div>
+  <div class="panel">
+    <div class="panel-header">Result JSON</div>
+    <div id="result" style="color:#7ec8e3;"></div>
+  </div>
+</div>
+
+<!-- ═══════════ Buttons ═══════════ -->
+<div class="btn-bar">
+  <button class="primary" id="btnRun" title="단계를 순서대로 실행합니다.">Run Full Process</button>
+  <button id="btnParallelHealth" title="같은 시각에 /health 5번을 동시에 호출합니다">Test: 5 parallel /health</button>
+  <button id="btnParallelSession" title="같은 시각에 /session/create 5번을 동시에 호출합니다">Test: 5 parallel sessions</button>
+  <button id="btnHealth">Health Check</button>
+  <button id="btnSessions">List Sessions</button>
+  <button id="btnClear">Clear Log</button>
+</div>
+
+<script>
+const NODE = "";
+const logEl = document.getElementById("log");
+const resultEl = document.getElementById("result");
+
+function base() { return NODE || (window.location.origin || ""); }
+document.getElementById("baseUrl").textContent = base();
+
+async function syncBrowserModeFromServer() {
+  try {
+    const r = await fetch(base() + "/health");
+    const j = await r.json();
+    const el = document.getElementById("browserHeadStatus");
+    if (el && typeof j.headful === "boolean") {
+      el.textContent = j.headful ? "서버: headful" : "서버: headless";
+    }
+  } catch (_) {
+    const el = document.getElementById("browserHeadStatus");
+    if (el) el.textContent = "";
+  }
+}
+
+async function ensureBrowserModeForRun() {
+  const wantHeadful = document.getElementById("radioHeadful").checked;
+  log("선택 모드: " + (wantHeadful ? "headful" : "headless"), "step");
+  const res = await nodePost("/browser/headful", { headful: wantHeadful });
+  logResponse("[응답] POST /browser/headful", res, 4000);
+  if (res.error) throw new Error(res.error);
+  if (res.relaunched === false) {
+    log("서버 모드가 이미 동일 — 브라우저 재시작 없음", "info");
+  } else {
+    log(res.message || "브라우저 재시작됨", "info");
+  }
+  await syncBrowserModeFromServer();
+}
+
+function log(msg, level) {
+  const ts = new Date().toLocaleTimeString();
+  const line = "[" + ts + "][" + (level || "info") + "] " + msg + "\n";
+  logEl.textContent += line;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/** 응답 JSON/객체를 콘솔에 기록 (과도하게 긴 본문은 잘림) */
+function logResponse(title, obj, maxChars) {
+  maxChars = maxChars || 14000;
+  let s;
+  try {
+    s = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+  } catch (e) {
+    s = String(obj);
+  }
+  if (s.length > maxChars) {
+    s = s.slice(0, maxChars) + "\n… (생략, 전체 " + s.length + "자)";
+  }
+  log(title + "\n" + s, "data");
+}
+
+async function nodePost(path, body) {
+  const r = await fetch(base() + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const text = await r.text();
+  let data;
+  try { data = JSON.parse(text); } catch (_) { data = { _raw: text }; }
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    data._httpStatus = r.status;
+    data._httpOk = r.ok;
+  } else {
+    data = { _data: data, _httpStatus: r.status, _httpOk: r.ok };
+  }
+  if (!r.ok) log("HTTP " + r.status + " " + path + " — " + text.substring(0, 300), "err");
+  return data;
+}
+
+/* ─── 버튼: Clear / Health / Sessions ─── */
+document.getElementById("btnClear").onclick = () => { logEl.textContent = ""; resultEl.textContent = ""; };
+document.getElementById("btnHealth").onclick = async () => {
+  try {
+    const r = await fetch(base() + "/health");
+    const j = await r.json();
+    resultEl.textContent = JSON.stringify(j, null, 2);
+    log("GET /health OK", "info");
+    await syncBrowserModeFromServer();
+  } catch (e) { log(String(e), "err"); }
+};
+document.getElementById("btnSessions").onclick = async () => {
+  try {
+    const r = await fetch(base() + "/session/list");
+    const j = await r.json();
+    resultEl.textContent = JSON.stringify(j, null, 2);
+    log("GET /session/list — " + (j.count || 0) + " sessions", "info");
+  } catch (e) { log(String(e), "err"); }
+};
+
+/* ─── 버튼: Parallel ─── */
+document.getElementById("btnParallelHealth").onclick = async () => {
+  log("5 parallel /health …", "step");
+  const t0 = Date.now();
+  const ps = [];
+  for (let i = 0; i < 5; i++) ps.push(fetch(base() + "/health").then(r => r.json()));
+  const out = await Promise.all(ps);
+  log("done in " + (Date.now() - t0) + "ms", "info");
+  resultEl.textContent = JSON.stringify(out, null, 2);
+};
+
+document.getElementById("btnParallelSession").onclick = async () => {
+  logEl.textContent = "";
+  resultEl.textContent = "";
+  try {
+    await ensureBrowserModeForRun();
+    log("5 parallel /session/create …", "step");
+    const t0 = Date.now();
+    const ps = [];
+    for (let i = 0; i < 5; i++) {
+      ps.push(nodePost("/session/create", { url: "about:blank", timeout: 15000 }));
+    }
+    const out = await Promise.all(ps);
+    log("done in " + (Date.now() - t0) + "ms", "info");
+    resultEl.textContent = JSON.stringify(out, null, 2);
+  } catch (e) {
+    log("ERROR: " + (e.message || e), "err");
+  }
+};
+
+/* ─── 프리셋 실행 ─── */
+async function runPreset() {
+  const createUrl = document.getElementById("pCreateUrl").value.trim();
+  const vmBaseUrl = document.getElementById("pVmUrl").value.trim();
+  const apiUrl = document.getElementById("pTargetUrl").value.trim();
+  const ct = document.getElementById("pContentType").value.trim();
+  const payloadRaw = document.getElementById("pPayload").value.trim();
+  const timeout = parseInt(document.getElementById("pTimeout").value) || 60000;
+
+  let requestPayload;
+  try { requestPayload = JSON.parse(payloadRaw); }
+  catch (_) { requestPayload = payloadRaw; }
+
+  // STEP 1: session/create
+  log("", "info");
+  log("========================================", "step");
+  log("[프리셋] STEP 1: POST /session/create", "step");
+  log("========================================", "step");
+  const t0 = Date.now();
+  const waitSub = document.getElementById("pWaitUrlContains").value.trim();
+  const createBody = { url: createUrl, timeout };
+  if (waitSub) createBody.waitUntilUrlContains = waitSub;
+  const createRes = await nodePost("/session/create", createBody);
+  logResponse("[응답] STEP 1 POST /session/create", createRes, 8000);
+  if (createRes.error) throw new Error(createRes.error);
+  const sessionId = createRes.sessionId;
+  log("sessionId: " + sessionId, "data");
+  if (createRes.finalUrl) log("finalUrl: " + createRes.finalUrl, "data");
+  log("Elapsed: " + (Date.now() - t0) + "ms", "data");
+
+  // STEP 2: VM 보안 스크립트 로드
+  if (vmBaseUrl) {
+    log("", "info");
+    log("========================================", "step");
+    log("[프리셋] STEP 2: POST /session/evaluate (vmLoadBaseUrl)", "step");
+    log("========================================", "step");
+    const t1 = Date.now();
+    const vmRes = await nodePost("/session/evaluate", {
+      sessionId,
+      vmLoadBaseUrl: vmBaseUrl,
+      timeout
+    });
+    logResponse("[응답] STEP 2 POST /session/evaluate (vmLoadBaseUrl)", vmRes, 8000);
+    if (vmRes.error) throw new Error(vmRes.error);
+    log("Script size: " + (vmRes.result && vmRes.result.len) + " bytes", "info");
+    log("Elapsed: " + (Date.now() - t1) + "ms", "data");
+  } else {
+    log("", "info");
+    log("========================================", "step");
+    log("[프리셋] STEP 2: SKIP (vmLoadBaseUrl 비어있음)", "step");
+    log("========================================", "step");
+  }
+
+  // STEP 3: XHR
+  if (apiUrl) {
+    log("", "info");
+    log("========================================", "step");
+    log("[프리셋] STEP 3: POST /session/evaluate (targetUrl + payload)", "step");
+    log("========================================", "step");
+    const t2 = Date.now();
+    const ajaxRes = await nodePost("/session/evaluate", {
+      sessionId,
+      targetUrl: apiUrl,
+      contentType: ct || "application/json",
+      payload: requestPayload,
+      timeout
+    });
+    logResponse("[응답] STEP 3 POST /session/evaluate (targetUrl + payload)", ajaxRes, 20000);
+    if (ajaxRes.error) throw new Error(ajaxRes.error);
+    log("XHR status(페이지 내): " + (ajaxRes.result && ajaxRes.result.status != null ? ajaxRes.result.status : "N/A"), "info");
+    log("Elapsed: " + (Date.now() - t2) + "ms", "data");
+    resultEl.textContent = JSON.stringify(ajaxRes.result, null, 2);
+  } else {
+    log("", "info");
+    log("========================================", "step");
+    log("[프리셋] STEP 3: SKIP (targetUrl 비어있음)", "step");
+    log("========================================", "step");
+  }
+
+  // STEP 4: cookies
+  log("", "info");
+  log("========================================", "step");
+  log("[프리셋] STEP 4: POST /session/cookies", "step");
+  log("========================================", "step");
+  const cRes = await nodePost("/session/cookies", { sessionId });
+  logResponse("[응답] STEP 4 POST /session/cookies", cRes, 12000);
+  if (cRes.cookies) {
+    log("Cookies: " + cRes.cookies.length, "info");
+    cRes.cookies.forEach(c => log("  " + c.name + " = " + c.value.substring(0, 40) + "...", "data"));
+  }
+
+  // STEP 5: destroy
+  log("", "info");
+  log("========================================", "step");
+  log("[프리셋] STEP 5: POST /session/destroy", "step");
+  log("========================================", "step");
+  const dRes = await nodePost("/session/destroy", { sessionId });
+  logResponse("[응답] STEP 5 POST /session/destroy", dRes, 4000);
+  log("Session destroyed.", "info");
+  log("========================================", "step");
+  log("[프리셋] 전체 완료", "step");
+  log("========================================", "step");
+}
+
+/* ─── Run Full Process ─── */
+document.getElementById("btnRun").onclick = async () => {
+  logEl.textContent = "";
+  resultEl.textContent = "";
+  try {
+    await ensureBrowserModeForRun();
+    await runPreset();
+  } catch (e) {
+    log("ERROR: " + (e.message || e), "err");
+  }
+};
+
+syncBrowserModeFromServer();
+</script>
+</body>
+</html>
