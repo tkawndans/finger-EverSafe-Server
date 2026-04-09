@@ -16,7 +16,7 @@ function checkAdminToken(req, res) {
 function registerWarmRoutes(app, deps) {
   const { getWarmDeps } = deps;
 
-  app.post("api/v1/ever-safe/evaluate/warm", async (req, res) => {
+  app.post("/api/v1/ever-safe/evaluate/warm", async (req, res) => {
     try {
       const { timeout } = req.body || {};
       const t = Number(timeout);
@@ -32,7 +32,7 @@ function registerWarmRoutes(app, deps) {
     }
   });
 
-  app.post("api/v1/ever-safe/warm/retry", async (req, res) => {
+  app.post("/api/v1/ever-safe/warm/retry", async (req, res) => {
     if (!checkAdminToken(req, res)) return;
     try {
       const out = await warmSession.setupWarmLocked(getWarmDeps());

@@ -4,9 +4,9 @@
 function registerBrowserRoutes(app, deps) {
   const { getHeadful, setHeadful, clearSessions, closeBrowser, launchBrowser, onAfterBrowserLaunched } = deps;
 
-  app.get("api/v1/ever-safe/browser/headful", (_req, res) => res.json({ headful: getHeadful() }));
+  app.get("/api/v1/ever-safe/browser/headful", (_req, res) => res.json({ headful: getHeadful() }));
 
-  app.post("api/v1/ever-safe/browser/headful", async (req, res) => {
+  app.post("/api/v1/ever-safe/browser/headful", async (req, res) => {
     const token = process.env.BROWSER_ADMIN_TOKEN;
     if (token && req.headers["x-browser-admin-token"] !== token) {
       return res.status(403).json({ error: "invalid token" });

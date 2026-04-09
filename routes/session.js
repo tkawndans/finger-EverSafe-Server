@@ -15,7 +15,7 @@ function registerSessionRoutes(app, deps) {
     extractTnkSrFromPage,
   } = deps;
 
-  app.post("api/v1/ever-safe/session/create", async (req, res) => {
+  app.post("/api/v1/ever-safe/session/create", async (req, res) => {
     try {
       const {
         url,
@@ -51,7 +51,7 @@ function registerSessionRoutes(app, deps) {
     }
   });
 
-  app.post("api/v1/ever-safe/session/evaluate", async (req, res) => {
+  app.post("/api/v1/ever-safe/session/evaluate", async (req, res) => {
     try {
       const { sessionId, timeout } = req.body || {};
       if (!sessionId) return res.status(400).json({ error: "sessionId required" });
@@ -75,7 +75,7 @@ function registerSessionRoutes(app, deps) {
     }
   });
 
-  app.post("api/v1/ever-safe/session/cookies", async (req, res) => {
+  app.post("/api/v1/ever-safe/session/cookies", async (req, res) => {
     try {
       const { sessionId } = req.body || {};
       if (!sessionId) return res.status(400).json({ error: "sessionId required" });
@@ -89,7 +89,7 @@ function registerSessionRoutes(app, deps) {
     }
   });
 
-  app.post("api/v1/ever-safe/session/destroy", async (req, res) => {
+  app.post("/api/v1/ever-safe/session/destroy", async (req, res) => {
     try {
       const { sessionId } = req.body || {};
       if (!sessionId) return res.status(400).json({ error: "sessionId required" });
@@ -104,7 +104,7 @@ function registerSessionRoutes(app, deps) {
     }
   });
 
-  app.get("api/v1/ever-safe/session/list", (_req, res) => {
+  app.get("/api/v1/ever-safe/session/list", (_req, res) => {
     const now = Date.now();
     const list = [];
     for (const [id, s] of sessions) {
@@ -113,7 +113,7 @@ function registerSessionRoutes(app, deps) {
     res.json({ sessions: list, count: list.length });
   });
 
-  app.post("api/v1/ever-safe/evaluate", async (req, res) => {
+  app.post("/api/v1/ever-safe/evaluate", async (req, res) => {
     let page;
     try {
       page = await createPage();

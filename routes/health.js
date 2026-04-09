@@ -6,7 +6,7 @@ const warmSession = require("../lib/warmSession");
 function registerHealthRoutes(app, deps) {
   const { getBrowser, getSessions, getHeadful } = deps;
 
-  app.get("api/v1/ever-safe/health", (_req, res) => {
+  app.get("/api/v1/ever-safe/health", (_req, res) => {
     const warm = warmSession.getState();
     res.json({
       status: "ok",
