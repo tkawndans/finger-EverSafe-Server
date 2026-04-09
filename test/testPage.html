@@ -55,15 +55,15 @@
 <!-- Top bar -->
 <div class="top-bar" style="flex-wrap: wrap;">
   <h1>프리셋 설정</h1>
-  <div class="browser-head-group" title="라디오만으로는 서버가 안 바뀝니다. 아래 [서버에 Chromium 모드 적용] 또는 Run Full Process 등이 POST /browser/headful을 호출할 때 반영됩니다. /warm/retry는 모드와 무관합니다.">
+  <div class="browser-head-group" title="라디오만으로는 서버가 안 바뀝니다. 아래 [서버에 Chromium 모드 적용] 또는 Run Full Process 등이 POST …/api/v1/ever-safe/browser/headful 을 호출할 때 반영됩니다. warm/retry는 모드와 무관합니다.">
     <span class="bh-title">Chromium</span>
     <label><input type="radio" name="browserHead" id="radioHeadless" value="headless" checked /> 헤드리스 (기본 · 창 없음)</label>
     <label><input type="radio" name="browserHead" id="radioHeadful" value="headful" /> 헤드풀 (디버깅 시)</label>
-    <button type="button" id="btnApplyHeadMode" style="margin-left:4px;padding:6px 12px;font-size:12px;border-radius:6px;border:1px solid #1a73e8;background:#1a73e8;color:#fff;cursor:pointer;" title="POST /browser/headful — 선택한 모드를 서버에 반영(브라우저 재시작)">서버에 모드 적용</button>
+    <button type="button" id="btnApplyHeadMode" style="margin-left:4px;padding:6px 12px;font-size:12px;border-radius:6px;border:1px solid #1a73e8;background:#1a73e8;color:#fff;cursor:pointer;" title="POST …/api/v1/ever-safe/browser/headful — 선택한 모드를 서버에 반영(브라우저 재시작)">서버에 모드 적용</button>
     <span id="browserHeadStatus"></span>
   </div>
   <div class="status">Base: <span id="baseUrl"></span></div>
-  <div class="admin-token-wrap" title="BROWSER_ADMIN_TOKEN이 있으면: POST /browser/headful(모드 전환) 및 POST /warm/retry에 필요. /warm/retry는 헤드풀 전환이 아니라 웜 URL·VM만 다시 잡습니다.">
+  <div class="admin-token-wrap" title="BROWSER_ADMIN_TOKEN이 있으면: POST …/browser/headful(모드 전환) 및 POST …/warm/retry에 필요. warm/retry는 헤드풀 전환이 아니라 웜 URL·VM만 다시 잡습니다.">
     <label for="pAdminToken">Admin 토큰 (선택)</label>
     <input id="pAdminToken" type="text" autocomplete="off" spellcheck="false" placeholder="X-Browser-Admin-Token 값" />
   </div>
@@ -137,30 +137,43 @@
 <!-- ═══════════ Buttons ═══════════ -->
 <div class="btn-bar">
   <button class="primary" id="btnRun" title="단계를 순서대로 실행합니다.">Run Full Process</button>
-  <button id="btnParallelHealth" title="같은 시각에 /health 5번을 동시에 호출합니다">Test: 5 parallel /health</button>
-  <button id="btnParallelSession" title="같은 시각에 /session/create 5번을 동시에 호출합니다">Test: 5 parallel sessions</button>
+  <button id="btnParallelHealth" title="같은 시각에 …/api/v1/ever-safe/health 5번을 동시에 호출합니다">Test: 5 parallel /health</button>
+  <button id="btnParallelSession" title="같은 시각에 …/api/v1/ever-safe/session/create 5번을 동시에 호출합니다">Test: 5 parallel sessions</button>
   <button id="btnExtractUt" title="① 초기 URL → ② vmLoadBaseUrl 로 스크립트 로드 후 pV.u / pV.u.t 추출 (POST /test/extract-ut)">Test: extract u · t (vm)</button>
-  <button id="btnHealth" title="GET /health — browser, sessions, headful, warmEnabled, warmReady 등">Health Check</button>
+  <button id="btnHealth" title="GET …/api/v1/ever-safe/health — browser, sessions, headful, warmEnabled, warmReady 등">Health Check</button>
   <button id="btnSessions">List Sessions</button>
   <button id="btnClear">Clear Log</button>
 
   <span class="btn-section-title">웜 · 추가 API (서버에 WARM_START_URL 설정 시)</span>
-  <button id="btnWarmHealth" title="GET /health — 웜 필드만 로그에 강조">Warm: GET /health</button>
-  <button id="btnWarmEvaluate" class="primary" title="POST /evaluate/warm — 아래 ③ targetUrl·payload로 XHR만 (웜 준비됨 필요)">Warm: POST /evaluate/warm (③ XHR)</button>
-  <button id="btnWarmRetry" class="warn" title="POST /warm/retry — 웜(goto+VM)만 다시 실행. 헤드리스/헤드풀 전환 아님. Admin 토큰 필요할 수 있음">Warm: POST /warm/retry</button>
+  <button id="btnWarmHealth" title="GET …/api/v1/ever-safe/health — 웜 필드만 로그에 강조">Warm: GET /health</button>
+  <button id="btnWarmEvaluate" class="primary" title="POST …/api/v1/ever-safe/evaluate/warm — 아래 ③ targetUrl·payload로 XHR만 (웜 준비됨 필요)">Warm: POST /evaluate/warm (③ XHR)</button>
+  <button id="btnWarmRetry" class="warn" title="POST …/api/v1/ever-safe/warm/retry — 웜(goto+VM)만 다시 실행. 헤드리스/헤드풀 전환 아님. Admin 토큰 필요할 수 있음">Warm: POST /warm/retry</button>
 </div>
 
 <script>
 const NODE = "";
+/** Ever-Safe HTTP API 접두사 (서버와 동일) */
+const API_PREFIX = "/api/v1/ever-safe";
+
 const logEl = document.getElementById("log");
 const resultEl = document.getElementById("result");
 
 function base() { return NODE || (window.location.origin || ""); }
-document.getElementById("baseUrl").textContent = base();
+
+/**
+ * 상대 API 경로 → 절대 URL. 예: apiUrl("/warm/retry") → …/api/v1/ever-safe/warm/retry
+ * 테스트 페이지·POST /test/extract-ut 는 프리픽스 없음(별도 호출).
+ */
+function apiUrl(path) {
+  const p = path.startsWith("/") ? path : "/" + path;
+  return base() + API_PREFIX + p;
+}
+
+document.getElementById("baseUrl").textContent = base() + API_PREFIX;
 
 async function syncBrowserModeFromServer() {
   try {
-    const r = await fetch(base() + "/health");
+    const r = await fetch(apiUrl("/health"));
     const j = await r.json();
     const el = document.getElementById("browserHeadStatus");
     if (el && typeof j.headful === "boolean") {
@@ -191,7 +204,7 @@ document.getElementById("btnApplyHeadMode").onclick = async () => {
   resultEl.textContent = "";
   try {
     await ensureBrowserModeForRun();
-    const r = await fetch(base() + "/health");
+    const r = await fetch(apiUrl("/health"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     log("[적용 완료] /health 의 headful=" + j.headful + " (true면 창이 떠야 함)", "info");
@@ -231,7 +244,8 @@ function adminHeaderMap() {
 }
 
 async function nodePost(path, body, opts) {
-  const r = await fetch(base() + path, {
+  const url = path.startsWith("/test") ? base() + path : apiUrl(path);
+  const r = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -257,7 +271,7 @@ async function nodePost(path, body, opts) {
 document.getElementById("btnClear").onclick = () => { logEl.textContent = ""; resultEl.textContent = ""; };
 document.getElementById("btnHealth").onclick = async () => {
   try {
-    const r = await fetch(base() + "/health");
+    const r = await fetch(apiUrl("/health"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     log("GET /health OK", "info");
@@ -278,7 +292,7 @@ function logWarmSummary(j) {
 document.getElementById("btnWarmHealth").onclick = async () => {
   try {
     log("GET /health (웜 필드 확인)", "step");
-    const r = await fetch(base() + "/health");
+    const r = await fetch(apiUrl("/health"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     logWarmSummary(j);
@@ -339,7 +353,7 @@ document.getElementById("btnWarmRetry").onclick = async () => {
 };
 document.getElementById("btnSessions").onclick = async () => {
   try {
-    const r = await fetch(base() + "/session/list");
+    const r = await fetch(apiUrl("/session/list"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     log("GET /session/list — " + (j.count || 0) + " sessions", "info");
@@ -351,7 +365,7 @@ document.getElementById("btnParallelHealth").onclick = async () => {
   log("5 parallel /health …", "step");
   const t0 = Date.now();
   const ps = [];
-  for (let i = 0; i < 5; i++) ps.push(fetch(base() + "/health").then(r => r.json()));
+  for (let i = 0; i < 5; i++) ps.push(fetch(apiUrl("/health")).then(r => r.json()));
   const out = await Promise.all(ps);
   log("done in " + (Date.now() - t0) + "ms", "info");
   resultEl.textContent = JSON.stringify(out, null, 2);

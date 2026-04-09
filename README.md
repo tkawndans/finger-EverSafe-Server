@@ -46,13 +46,14 @@ NodeServer/
 │   ├── urlPrefixMatch.js  # 네비 정책 URL 매칭
 │   └── xhrCapture.js      # xhrDelegateToClient 시 POST 본문 캡처·abort
 ├── ever-safe/EverSafe.txt # VM 주입 스크립트(필수). `EVERSAFE_TXT_PATH`로 다른 파일 지정 가능
-├── test.js                # ENABLE_TEST_PAGE 시 GET /test
-├── test/testPage.html
+├── test/
+│   ├── index.js           # ENABLE_TEST_PAGE 시 GET /test (로컬 전용, git 제외 가능)
+│   └── testPage.html
 ├── package.json
 ├── .env.example           # 로컬용 환경 변수 템플릿(git 추적). 실제 비밀은 `.env`(gitignore)
 ├── README.md
 ├── Dockerfile, docker-compose.yml
-└── memory-bank/           # 프로젝트 컨텍스트 문서
+└── memory-bank/           # 프로젝트 컨텍스트 문서(로컬 전용, git 제외 가능)
 ```
 
 - **`vmLoadBaseUrl` 필드**: API 호환용으로 남아 있으며, 값이 있으면 VM 단계가 실행됩니다. 스크립트 본문은 **`EverSafe.txt`**(또는 `EVERSAFE_TXT_PATH`)에서 읽으며, **해당 URL로 Node가 fetch 하지 않습니다.** (테스트용 `fetchVmScript`는 별도 경로)
@@ -196,7 +197,7 @@ Windows에서 개발한 뒤 **Linux 컨테이너**에서 돌릴 때는 아래만
 | `server.js` | 메인 진입 |
 | `routes/`, `lib/` | HTTP 라우트·공유 로직 |
 | `ever-safe/EverSafe.txt` | Docker 이미지에 포함(VM 단계 필수). 로컬과 동일 경로 |
-| `test.js`, `test/testPage.html` | `ENABLE_TEST_PAGE=1` 일 때만 필요하지만 Dockerfile에서 함께 복사 |
+| `test/` (`index.js`, `testPage.html`) | `ENABLE_TEST_PAGE=1` 일 때만 필요. 로컬에 두고, Docker 이미지에는 포함하지 않음(`.dockerignore`) |
 | `Dockerfile`, `.dockerignore`, `docker-compose.yml` | 빌드·실행용 |
 
 **넣지 않음(일반적):** `node_modules`, `.cache/puppeteer`, `memory-bank`, `.git` — `.dockerignore`에 명시.

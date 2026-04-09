@@ -6,6 +6,7 @@ npm-debug.log
 *.md
 !README.md
 memory-bank
+test/
 .cache
 .env
 .env.*

@@ -31,6 +31,12 @@ Desktop.ini
 # Cursor (local)
 .cursor/
 
+# Memory bank (로컬 컨텍스트 — 레포에 포함하지 않음)
+memory-bank/
+
+# 테스트 UI·스크립트 (로컬 전용 — 레포에 포함하지 않음)
+test/
+
 # Test / coverage
 coverage/
 .nyc_output/
