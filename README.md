@@ -1,25 +1,56 @@
 # NodeServer — Express + Puppeteer
 
 실제 Chromium 브라우저 환경에서 JavaScript를 실행하는 Node.js 서버.  
-Go 등 외부 서버에서 REST API로 호출하여 **보안 모듈 로드 → XHR POST → 결과 수집** 플로우를 자동화합니다.
+Go 등 외부 서버에서 REST API로 호출하여 **보안 모듈(EverSafe.txt) 주입 → XHR POST → 결과 수집** 플로우를 자동화합니다.
+
+코드는 **`server.js`**(브라우저·세션·미들웨어) · **`routes/`**(HTTP 라우트) · **`lib/`**(네비 정책, 스텔스, VM/XHR 실행)로 나뉩니다.
 
 ---
 
 ## 목차
 
 1. [빠른 시작](#빠른-시작)
-2. [운영·개발 실행 및 종료](#ops-dev-run)
-3. [패킷 캡처 (Fiddler 등) — Node 아웃바운드](#fiddler-node-proxy)
-4. [환경 변수](#환경-변수)
-5. [API 요약](#api-요약)
-6. [세션 API — 상세](#세션-api--상세)
-7. [Stateless API — 상세](#stateless-api--상세)
-8. [Evaluate 실행 모드](#evaluate-실행-모드)
-9. [Health Check](#health-check)
-10. [테스트 페이지](#테스트-페이지)
-11. [연동 예시 (Go)](#연동-예시-go)
-12. [시퀀스 다이어그램](#시퀀스-다이어그램)
-13. [Docker (Linux)](#docker-linux)
+2. [프로젝트 구조](#프로젝트-구조)
+3. [운영·개발 실행 및 종료](#ops-dev-run)
+4. [패킷 캡처 (Fiddler 등) — Node 아웃바운드](#fiddler-node-proxy)
+5. [환경 변수](#환경-변수)
+6. [API 요약](#api-요약)
+7. [세션 API — 상세](#세션-api--상세)
+8. [Stateless API — 상세](#stateless-api--상세)
+9. [Evaluate 실행 모드](#evaluate-실행-모드)
+10. [Health Check](#health-check)
+11. [테스트 페이지](#테스트-페이지)
+12. [연동 예시 (Go)](#연동-예시-go)
+13. [시퀀스 다이어그램](#시퀀스-다이어그램)
+14. [Docker (Linux)](#docker-linux)
+
+---
+
+<h2 id="프로젝트-구조">프로젝트 구조</h2>
+
+```
+NodeServer/
+├── server.js              # Express 앱, 브라우저 수명, 세션 Map, createPage / gotoAndWait
+├── routes/
+│   ├── health.js          # GET /health
+│   ├── browser.js         # GET·POST /browser/headful
+│   └── session.js         # /session/* , POST /evaluate
+├── lib/
+│   ├── evaluate.js        # executeOnPage (VM + XHR)
+│   ├── vmScript.js        # EverSafe.txt 읽기, fetchVmScript(테스트용), VM 가드 조합
+│   ├── navigationPolicy.js# 페이지별 URL 접두 허용/차단, 복구 후 VM 재주입
+│   ├── stealth.js         # UA·navigator 등 스텔스
+│   └── urlPrefixMatch.js  # 네비 정책 URL 매칭
+├── EverSafe.txt           # evaluate 시 vmLoadBaseUrl 모드에서 페이지에 주입할 스크립트(비어 있으면 안 됨)
+├── test.js                # ENABLE_TEST_PAGE 시 GET /test
+├── test/testPage.html
+├── package.json
+├── README.md
+├── Dockerfile, docker-compose.yml
+└── memory-bank/           # 프로젝트 컨텍스트 문서
+```
+
+- **`vmLoadBaseUrl` 필드**: API 호환용으로 남아 있으며, 값이 있으면 VM 단계가 실행됩니다. 스크립트 본문은 **`EverSafe.txt`**(또는 `EVERSAFE_TXT_PATH`)에서 읽으며, **해당 URL로 Node가 fetch 하지 않습니다.** (테스트용 `fetchVmScript`는 별도 경로)
 
 ---
 
@@ -76,7 +107,7 @@ npm start
 npm run dev
 ```
 
-`node --watch`로 `server.js` 변경 시 자동 재시작됩니다.
+`node --watch`로 **진입 파일 `server.js`** 변경 시 자동 재시작됩니다. `routes/`·`lib/` 등을 수정한 뒤 반영이 안 되면 저장 후 한 번 재시작하거나 `server.js`를 살짝 저장해 재기동하세요.
 
 **종료**: 운영과 동일하게 해당 터미널에서 **`Ctrl+C`**.
 
@@ -95,7 +126,10 @@ docker compose down     # 종료(컨테이너 제거)
 
 <h2 id="fiddler-node-proxy">패킷 캡처 (Fiddler 등) — Node 아웃바운드</h2>
 
-`vmLoadBaseUrl` 로 보안 스크립트를 받을 때처럼 **Node 프로세스가 직접 `fetch` 하는 요청**은, 환경 변수만으로는 내장 `fetch`가 프록시를 타지 않는 경우가 있어, 본 프로젝트는 **`HTTP_PROXY` / `HTTPS_PROXY` 가 설정되면 `undici`의 `EnvHttpProxyAgent`로 글로벌 디스패처를 설정**합니다. Fiddler 등 **로컬 프록시**로 이 트래픽을 보려면 **서버를 기동하기 전에** 아래를 **같은 PowerShell 세션**에서 설정합니다.
+**Node 프로세스가 직접 `fetch` 하는 요청**(예: 테스트용 `fetchVmScript`, 기타 Node 측 HTTP)은 환경 변수만으로는 내장 `fetch`가 프록시를 타지 않는 경우가 있어, 본 프로젝트는 **`HTTP_PROXY` / `HTTPS_PROXY` 가 설정되면 `undici`의 `EnvHttpProxyAgent`로 글로벌 디스패처를 설정**합니다.  
+※ **`POST /session/evaluate`의 VM 단계**는 로컬 **`EverSafe.txt`를 읽어** 주입하므로, 이 단계만 놓고 보면 Node `fetch`가 대상 은행 URL로 나가지 않습니다. Fiddler로 **Chromium XHR·페이지 네비**를 보는 설정은 아래 `PUPPETEER_PROXY`를 참고하세요.
+
+Fiddler 등 **로컬 프록시**로 Node `fetch` 트래픽을 보려면 **서버를 기동하기 전에** 아래를 **같은 PowerShell 세션**에서 설정합니다.
 
 **Fiddler Classic 기본 프록시: `127.0.0.1:8888`** (Everywhere 등은 포트가 다를 수 있음)
 
@@ -104,7 +138,7 @@ docker compose down     # 종료(컨테이너 제거)
 $env:HTTP_PROXY  = "http://127.0.0.1:8888"
 $env:HTTPS_PROXY = "http://127.0.0.1:8888"
 
-# Fiddler에서 HTTPS 복호화(Decrypt HTTPS)를 켠 경우에만 — 개발 전용 (Node fetch / vmLoadBaseUrl TLS 오류 방지)
+# Fiddler에서 HTTPS 복호화(Decrypt HTTPS)를 켠 경우에만 — 개발 전용 (Node fetch TLS 오류 방지)
 $env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
 # XHR(Chromium) 트래픽도 Fiddler에 보이게 — HTTP_PROXY와 별도
@@ -116,7 +150,7 @@ node server.js
 
 시작 로그에 `[proxy] fetch() → HTTP(S)_PROXY 사용` 이 나오면 Node 측 `fetch`가 프록시를 경유하는 설정이 적용된 것입니다.
 
-Fiddler에서 **HTTPS 복호화(Decrypt HTTPS)** 를 켰다면 **`NODE_TLS_REJECT_UNAUTHORIZED=0` 은 사실상 필수**입니다. 이 줄 없이 `HTTP_PROXY` 만 쓰면 `POST /session/evaluate` 의 `vmLoadBaseUrl` 단계에서 Node `fetch`가 **인증서 오류**로 실패하고, 응답은 `500` / `fetch failed` 형태가 될 수 있습니다.
+Fiddler에서 **HTTPS 복호화(Decrypt HTTPS)** 를 켰다면 **`NODE_TLS_REJECT_UNAUTHORIZED=0` 은 사실상 필수**입니다. 이 줄 없이 `HTTP_PROXY` 만 쓰면 Node 측 `fetch`(예: 스크립트를 URL에서 받는 테스트 경로)가 **인증서 오류**로 실패하고, 응답은 `500` / `fetch failed` 형태가 될 수 있습니다.
 
 **참고**
 
@@ -138,7 +172,9 @@ Windows에서 개발한 뒤 **Linux 컨테이너**에서 돌릴 때는 아래만
 | 포함 | 설명 |
 |------|------|
 | `package.json`, `package-lock.json` | 의존성 잠금 |
-| `server.js` | 메인 |
+| `server.js` | 메인 진입 |
+| `routes/`, `lib/` | HTTP 라우트·공유 로직 |
+| `EverSafe.txt` | VM 주입 스크립트(비어 있으면 evaluate VM 단계 실패) |
 | `test.js`, `test/testPage.html` | `ENABLE_TEST_PAGE=1` 일 때만 필요하지만 Dockerfile에서 함께 복사 |
 | `Dockerfile`, `.dockerignore`, `docker-compose.yml` | 빌드·실행용 |
 
@@ -179,6 +215,12 @@ docker run -p 3000:3000 puppeteer-api
 | `PUPPETEER_EXECUTABLE_PATH` | 미설정 | Chromium 실행 파일 **절대 경로**. Docker/Linux에서는 `/usr/bin/chromium` 등. 설정 시 로컬 `.cache/puppeteer` 탐색보다 **우선** |
 | `PUPPETEER_PROXY` | 미설정 | Fiddler 등에 **Chromium XHR**까지 보이게 할 때. 예: `http://127.0.0.1:8888` → `--proxy-server` 로 적용. **`HTTP_PROXY`와 별도** (Node `fetch`용과 무관). |
 | `PUPPETEER_PROXY_BYPASS` | 미설정 | 설정 시 Chromium `--proxy-bypass-list`에 전달. 특정 호스트만 프록시 제외할 때. |
+| `EVERSAFE_TXT_PATH` | 미설정 | 설정 시 **절대 경로**로 VM 스크립트 파일 지정. 미설정이면 프로젝트 루트의 `EverSafe.txt` |
+| `PUPPETEER_DISABLE_STEALTH` | 미설정 | `1`이면 UA·webdriver 완화 등 스텔스 비활성화(디버깅용) |
+| `PUPPETEER_VIEWPORT_W` / `PUPPETEER_VIEWPORT_H` | `1920` / `1080` | 새 페이지 뷰포트 크기(클램프 적용) |
+| `PUPPETEER_USER_AGENT` | 미설정 | 비어 있으면 Puppeteer 기본 UA에서 Headless 표기만 정리 |
+| `PUPPETEER_NAVIGATOR_LANGUAGES` | `ko-KR,ko,...` | 스텔스 스크립트에 쓸 언어 목록(쉼표 구분) |
+| `PUPPETEER_NO_VM_REINJECT_AFTER_RESTORE` | 미설정 | `1`이면 네비 복구 후 EverSafe VM 자동 재주입 안 함 |
 
 ---
 
@@ -258,16 +300,16 @@ docker run -p 3000:3000 puppeteer-api
 
 | 모드 | 사용할 필드 | 설명 |
 |------|-------------|------|
-| **보안 스크립트 로드** | `vmLoadBaseUrl` | 서버가 `fetch(URL + &t=timestamp)` → `eval` 템플릿을 조립. 패킷에는 **URL 한 줄**만 노출. |
+| **보안 스크립트 로드** | `vmLoadBaseUrl` | 필드가 있으면 VM 단계 실행. 스크립트는 서버 디스크의 **`EverSafe.txt`**(`EVERSAFE_TXT_PATH` 가능)에서 읽어 `page.evaluate`로 주입합니다. URL 문자열은 API 호환·메타데이터용이며, **이 URL로 스크립트를 내려받지 않습니다.** |
 | **POST (XHR)** | `targetUrl` + `payload` + (선택) `contentType` | 서버가 XHR 템플릿을 조립. **`contentType` 생략 시 기본값은 `application/json`**. 대상 사이트에 맞게 JSON·문자열·XML 등 본문 형식을 `payload`+`contentType`으로 맞춤. |
-| **VM → XHR (순차)** | `vmLoadBaseUrl` + `targetUrl` + `payload` + (선택) `contentType` | **같은 페이지 컨텍스트**에서 먼저 보안 스크립트를 로드한 뒤, 이어서 XHR `POST`를 실행. 결과는 `{ "vm": { … }, "xhr": { "status", "data" } }` 형태. |
+| **VM → XHR (순차)** | `vmLoadBaseUrl` + `targetUrl` + `payload` + (선택) `contentType` | **같은 페이지 컨텍스트**에서 먼저 EverSafe VM을 주입한 뒤, 이어서 XHR `POST`를 실행. 결과는 `{ "vm": { … }, "xhr": { "status", "data" } }` 형태. |
 
 **필드 상세**
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `sessionId` | string | 예 | ①에서 받은 ID |
-| `vmLoadBaseUrl` | string | VM 단독 또는 VM+XHR | 스크립트를 가져올 **베이스 URL** (`?`가 있으면 `&t=`, 없으면 `?t=` 로 타임스탬프 추가) |
+| `vmLoadBaseUrl` | string | VM 단독 또는 VM+XHR | 값이 있으면 VM 단계 실행(스크립트는 **`EverSafe.txt`**). URL은 식별·복구 메타데이터용(네트워크 fetch 아님) |
 | `targetUrl` | string | XHR 단독 또는 VM+XHR | `POST`할 **전체 URL** (`https://...`) |
 | `payload` | object 또는 string | XHR 단독 또는 VM+XHR | **문자열**이면 그대로 본문(XML·폼·원문 등). **객체·배열 등**은 `contentType`이 JSON 계열일 때만 `JSON.stringify`로 직렬화. JSON이 아닌 `contentType`으로 객체를 보낼 수 없음(문자열로 보낼 것). |
 | `contentType` | string | 아니오 | 요청 `Content-Type` 헤더. **생략 시 `application/json`** (유일한 기본값). 예: `application/x-www-form-urlencoded`, `application/xml`, `text/xml`, `text/plain` |
@@ -441,7 +483,7 @@ docker run -p 3000:3000 puppeteer-api
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| `vmLoadBaseUrl` | string | VM 모드 | 보안 스크립트 베이스 URL |
+| `vmLoadBaseUrl` | string | VM 모드 | EverSafe VM 실행 트리거(본문은 로컬 `EverSafe.txt`) |
 | `targetUrl` / `payload` / `contentType` | — | XHR 모드 | XHR POST(본문·`Content-Type`은 세션 API와 동일) |
 | `url` | string | X | 코드 실행 전 이동할 URL |
 | `waitUntilUrlContains` | string | X | `url` 사용 시 goto 후 URL에 이 문자열이 포함될 때까지 대기 |
@@ -455,13 +497,13 @@ docker run -p 3000:3000 puppeteer-api
 
 ## Evaluate 실행 모드
 
-서버는 요청 필드 조합에 따라 3가지 모드 중 하나로 동작합니다.
+서버는 요청 필드 조합에 따라 3가지 모드 중 하나로 동작합니다. 구현은 **`lib/evaluate.js`** 의 `executeOnPage` 한 경로에서 처리합니다.
 
-| 조합 | 모드 | 생성 함수 | 결과 형태 |
+| 조합 | 모드 | 구현 요약 | 결과 형태 |
 |------|------|-----------|-----------|
-| `vmLoadBaseUrl` 만 | VM 단독 | `buildVmLoadCode` | `{ ok, len, t }` |
-| `targetUrl` + `payload` 만 | XHR 단독 | `buildXhrPostCode` | `{ status, data }` |
-| `vmLoadBaseUrl` + `targetUrl` + `payload` | VM → XHR 순차 | `buildVmLoadThenXhrPostCode` | `{ vm: { ok, len, t }, xhr: { status, data } }` |
+| `vmLoadBaseUrl` 만 | VM 단독 | `readEverSafeVmScript` → (선택) 네비 가드 prepend → `evalVmScriptInPage` | `{ ok, source, path, vmLoadBaseUrl, len, vmLen, guardLen, … }` |
+| `targetUrl` + `payload` 만 | XHR 단독 | `buildXhrPostCode` → `page.evaluate` | `{ status, data }` |
+| `vmLoadBaseUrl` + `targetUrl` + `payload` | VM → XHR 순차 | 위 VM 후 `postVmSettleMs`(선택) 대기 → XHR | `{ vm: { … }, xhr: { status, data } }` |
 
 - **`contentType`**: 생략 시 유일한 기본값 `application/json`. 대상 사이트에 맞게 자유롭게 지정.
 - **`payload`**: 문자열이면 그대로 본문. 객체/배열은 JSON 계열 contentType일 때만 직렬화.
@@ -594,9 +636,9 @@ Client (Go/Test Page)                    NodeServer                         Targ
        │  POST /session/evaluate             │                                   │
        │  { sessionId, vmLoadBaseUrl }       │                                   │
        ├────────────────────────────────────►│                                   │
-       │                                     │  page.evaluate: fetch+eval        │
+       │                                     │  EverSafe.txt → page.evaluate(eval)│
        │                                     ├──────────────────────────────────►│
-       │  { result: { ok, len, t } }         │◄──────────────────────────────────┤
+       │  { result: { ok, source, path… } }  │◄──────────────────────────────────┤
        │◄────────────────────────────────────┤                                   │
        │                                     │                                   │
        │  POST /session/evaluate             │                                   │
@@ -623,8 +665,10 @@ Client (Go/Test Page)                    NodeServer                         Targ
 | **싱글 브라우저 인스턴스** | 서버 시작 시 1회 실행, 전체 수명 동안 재사용 |
 | **세션 = 페이지** | `sessionId` 하나가 Chromium 페이지 하나에 대응 → 쿠키·로그인 유지 |
 | **세션 타임아웃** | 10분 미사용 시 자동 파기, `evaluate` 호출 시 갱신 |
+| **라우트 분리** | `routes/health.js`, `browser.js`, `session.js` — `server.js`는 등록·의존성 주입 |
+| **네비게이션 정책** | `lib/navigationPolicy.js` — URL 접두 허용/차단, 위반 시 복구·(선택) VM 재주입 |
 | **리소스 차단** | 이미지·폰트·미디어 요청 차단으로 속도 향상 |
 | **자동 복구** | 브라우저 `disconnected` 시 재실행, 기존 세션 전체 정리 |
 | **Graceful Shutdown** | `SIGINT`/`SIGTERM` 시 전체 정리 후 종료 |
-| **코드 미노출** | 클라이언트는 URL만 전달; JS 소스가 패킷에 노출되지 않음 |
+| **VM 소스** | evaluate VM은 로컬 **`EverSafe.txt`** — 요청으로 임의 JS 문자열을 받지 않음 |
 | **contentType 기본값** | `application/json` 단 하나. 폼·XML 등은 명시적 지정 |

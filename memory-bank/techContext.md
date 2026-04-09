@@ -1,36 +1,46 @@
 # Tech Context
 
 ## 기술 스택
-- **Runtime**: Node.js 18+ (--watch 플래그 지원)
+- **Runtime**: Node.js 18+ (`npm run dev`는 `node --watch server.js` — 진입 파일 기준)
 - **Framework**: Express 5
-- **Browser Automation**: Puppeteer (Chromium 번들)
+- **Browser Automation**: Puppeteer (Chromium 번들 또는 `PUPPETEER_EXECUTABLE_PATH`)
+- **HTTP 클라이언트(프록시)**: `undici` — `HTTP(S)_PROXY` 설정 시 `EnvHttpProxyAgent`로 글로벌 `fetch` 디스패처
 
-## 의존성
-- `express` ^5.2.1 — 웹 서버 프레임워크
-- `puppeteer` ^24.40.0 — Chromium 브라우저 자동화
+## 의존성 (`package.json`)
+- `express` ^5.2.1
+- `puppeteer` ^24.40.0
+- `undici` ^6.21.3 — Node 측 `fetch` 프록시 일원화(테스트용 `fetchVmScript` 등)
 
 ## 파일 구조
 ```
 NodeServer/
-├── server.js          # 메인 서버 (Express + Puppeteer)
-├── test.js            # 테스트 라우트 등록 (GET /test)
-├── test/
-│   └── testPage.html  # 브라우저 테스트 UI (프리셋/수동 모드)
+├── server.js
+├── routes/
+│   ├── health.js
+│   ├── browser.js
+│   └── session.js
+├── lib/
+│   ├── evaluate.js
+│   ├── vmScript.js
+│   ├── navigationPolicy.js
+│   ├── stealth.js
+│   └── urlPrefixMatch.js
+├── EverSafe.txt
+├── test.js
+├── test/testPage.html
 ├── package.json
 ├── README.md
-├── Dockerfile
-├── memory-bank/       # 프로젝트 컨텍스트 문서
-└── .cache/puppeteer/  # Chromium 바이너리 캐시
+├── Dockerfile, docker-compose.yml
+├── memory-bank/
+└── .cache/puppeteer/       # 로컬 Chromium 캐시(Windows 경로 탐색)
 ```
 
 ## 개발 환경
-- OS: Windows 10+
-- Chromium: `.cache/puppeteer/chrome/` 내 자동 탐색 (`findChromePath`)
-- --no-sandbox 필수 (Windows 환경)
-- Puppeteer **기본 헤드리스**; 헤드풀은 필요 시만(테스트 페이지 라디오 또는 `POST /browser/headful`, 또는 시작 시 `PUPPETEER_HEADFUL=1`)
-- Docker/Linux: `Dockerfile` + `PUPPETEER_EXECUTABLE_PATH` (apt `chromium`). `PUPPETEER_EXECUTABLE_PATH`가 있으면 Windows용 `findChromePath`보다 우선
+- OS: Windows 10+ (리포 기준), Docker/Linux 배포 지원
+- Chromium: `PUPPETEER_EXECUTABLE_PATH` 우선, 없으면 `.cache/puppeteer/chrome/` 자동 탐색(Windows `chrome-win64`)
+- Puppeteer 기본 헤드리스; 헤드풀은 `PUPPETEER_HEADFUL=1` 또는 `POST /browser/headful`
 
 ## 기술적 제약
-- `page.evaluate()` 반환값은 직렬화 가능해야 함 (DOM 노드 직접 반환 불가)
-- Express 5에서 `app.options("*")` 대신 CORS 미들웨어로 처리
-- XHR 응답 텍스트 최대 2000자로 제한 (메모리 보호)
+- `page.evaluate()` 반환값은 직렬화 가능해야 함
+- CORS: `app.options("*all", …)` 등 Express 5 호환 패턴
+- XHR 응답 텍스트 최대 2000자로 잘라 저장(`lib/evaluate.js`의 `buildXhrPostCode`)
