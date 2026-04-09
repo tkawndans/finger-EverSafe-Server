@@ -5,11 +5,13 @@
 - **Framework**: Express 5
 - **Browser Automation**: Puppeteer (Chromium 번들 또는 `PUPPETEER_EXECUTABLE_PATH`)
 - **HTTP 클라이언트(프록시)**: `undici` — `HTTP(S)_PROXY` 설정 시 `EnvHttpProxyAgent`로 글로벌 `fetch` 디스패처
+- **로컬 환경 변수**: `dotenv` — 프로젝트 루트 `.env` (gitignore), `.env.example` 템플릿
 
 ## 의존성 (`package.json`)
 - `express` ^5.2.1
 - `puppeteer` ^24.40.0
 - `undici` ^6.21.3 — Node 측 `fetch` 프록시 일원화(테스트용 `fetchVmScript` 등)
+- `dotenv` ^16.x — `server.js` 최상단 `require("dotenv").config()`
 
 ## 파일 구조
 ```
@@ -18,17 +20,21 @@ NodeServer/
 ├── routes/
 │   ├── health.js
 │   ├── browser.js
-│   └── session.js
+│   ├── session.js
+│   └── warm.js
 ├── lib/
 │   ├── evaluate.js
+│   ├── warmSession.js
 │   ├── vmScript.js
 │   ├── navigationPolicy.js
 │   ├── stealth.js
-│   └── urlPrefixMatch.js
+│   ├── urlPrefixMatch.js
+│   └── xhrCapture.js
 ├── ever-safe/EverSafe.txt
 ├── test.js
 ├── test/testPage.html
 ├── package.json
+├── .env.example
 ├── README.md
 ├── Dockerfile, docker-compose.yml
 ├── memory-bank/

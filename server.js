@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -8,6 +9,7 @@ const nav = require("./lib/navigationPolicy");
 const xhrCapture = require("./lib/xhrCapture");
 const stealth = require("./lib/stealth");
 const { fetchVmScript } = require("./lib/vmScript");
+const warmSession = require("./lib/warmSession");
 const { STEALTH_ENABLED, mergeStealthHeaders, applyPageStealth } = stealth;
 
 const PORT = process.env.PORT || 3000;
@@ -83,16 +85,35 @@ async function launchBrowser() {
   browser.on("disconnected", () => {
     console.log("[browser] disconnected — will relaunch");
     sessions.clear();
-    launchBrowser().catch((e) => console.error("[browser] relaunch failed:", e));
+    warmSession.onBrowserDisconnected();
+    launchBrowser()
+      .then(() => scheduleWarmAfterLaunch())
+      .catch((e) => console.error("[browser] relaunch failed:", e));
   });
 }
 
 async function closeBrowser() {
+  warmSession.detachWarmPageOnly();
   if (browser) {
     browser.removeAllListeners("disconnected");
     await browser.close().catch(() => {});
     browser = null;
   }
+}
+
+function getWarmDeps() {
+  return {
+    createPage,
+    gotoAndWait,
+    sleep,
+    extractTnkSrFromPage,
+  };
+}
+
+async function scheduleWarmAfterLaunch() {
+  return warmSession.setupWarmLocked(getWarmDeps()).catch((e) => {
+    console.error("[warm] setup after launch failed:", e.message || e);
+  });
 }
 
 /* ─────────────────── Session store ─────────────────── */
@@ -215,6 +236,7 @@ app.options("*all", (_req, res) => res.sendStatus(204));
 const { registerHealthRoutes } = require("./routes/health");
 const { registerBrowserRoutes } = require("./routes/browser");
 const { registerSessionRoutes } = require("./routes/session");
+const { registerWarmRoutes } = require("./routes/warm");
 
 registerHealthRoutes(app, {
   getBrowser: () => browser,
@@ -231,6 +253,10 @@ registerBrowserRoutes(app, {
   },
   closeBrowser,
   launchBrowser,
+  onAfterBrowserLaunched: scheduleWarmAfterLaunch,
+});
+registerWarmRoutes(app, {
+  getWarmDeps,
 });
 registerSessionRoutes(app, {
   sessions,
@@ -253,6 +279,7 @@ if (process.env.ENABLE_TEST_PAGE !== "0") {
 async function start() {
   console.log(`[server] PUPPETEER_HEADFUL env=${process.env.PUPPETEER_HEADFUL || "(unset)"}`);
   await launchBrowser();
+  await scheduleWarmAfterLaunch();
   app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
 }
 
@@ -264,6 +291,7 @@ async function shutdown(sig) {
     await s.page.close().catch(() => {});
     sessions.delete(id);
   }
+  await warmSession.closeWarmPageSafe();
   await closeBrowser();
   process.exit(0);
 }

@@ -2,7 +2,7 @@
  * GET/POST /browser/headful
  */
 function registerBrowserRoutes(app, deps) {
-  const { getHeadful, setHeadful, clearSessions, closeBrowser, launchBrowser } = deps;
+  const { getHeadful, setHeadful, clearSessions, closeBrowser, launchBrowser, onAfterBrowserLaunched } = deps;
 
   app.get("/browser/headful", (_req, res) => res.json({ headful: getHeadful() }));
 
@@ -21,6 +21,9 @@ function registerBrowserRoutes(app, deps) {
     clearSessions();
     await closeBrowser();
     await launchBrowser();
+    if (typeof onAfterBrowserLaunched === "function") {
+      await onAfterBrowserLaunched().catch((e) => console.error("[browser] warm after relaunch failed:", e));
+    }
     res.json({
       ok: true,
       headful: getHeadful(),

@@ -18,7 +18,7 @@ Go 등 외부 서버에서 REST API로 호출하여 **보안 모듈(EverSafe.txt
 7. [세션 API — 상세](#세션-api--상세)
 8. [Stateless API — 상세](#stateless-api--상세)
 9. [Evaluate 실행 모드](#evaluate-실행-모드)
-10. [Health Check](#health-check)
+10. [Health·웜·브라우저 API 상세](#health-check)
 11. [테스트 페이지](#테스트-페이지)
 12. [연동 예시 (Go)](#연동-예시-go)
 13. [시퀀스 다이어그램](#시퀀스-다이어그램)
@@ -34,9 +34,11 @@ NodeServer/
 ├── routes/
 │   ├── health.js          # GET /health
 │   ├── browser.js         # GET·POST /browser/headful
-│   └── session.js         # /session/* , POST /evaluate
+│   ├── session.js         # /session/* , POST /evaluate
+│   └── warm.js            # POST /evaluate/warm , POST /warm/retry
 ├── lib/
 │   ├── evaluate.js        # executeOnPage (VM + XHR)
+│   ├── warmSession.js     # 웜 페이지 상태·구성·락
 │   ├── vmScript.js        # EverSafe.txt 읽기, fetchVmScript(테스트용), VM 가드 조합
 │   ├── navigationPolicy.js# 페이지별 URL 접두 허용/차단, 복구 후 VM 재주입
 │   ├── stealth.js         # UA·navigator 등 스텔스
@@ -46,6 +48,7 @@ NodeServer/
 ├── test.js                # ENABLE_TEST_PAGE 시 GET /test
 ├── test/testPage.html
 ├── package.json
+├── .env.example           # 로컬용 환경 변수 템플릿(git 추적). 실제 비밀은 `.env`(gitignore)
 ├── README.md
 ├── Dockerfile, docker-compose.yml
 └── memory-bank/           # 프로젝트 컨텍스트 문서
@@ -96,6 +99,22 @@ node server.js
 $env:ENABLE_TEST_PAGE = "0"
 npm start
 ```
+
+**헤드풀(Chromium 창 표시)로 기동** — 디버깅 시에만 사용합니다. **같은 터미널 세션**에서 서버를 띄우기 직전에 설정합니다.
+
+```powershell
+# PowerShell
+$env:PUPPETEER_HEADFUL = "1"
+npm start
+```
+
+```bash
+# bash (Linux/macOS/Git Bash 등)
+PUPPETEER_HEADFUL=1 npm start
+```
+
+기본은 헤드리스입니다. 나중에 헤드리스로 돌리려면 PowerShell에서 `Remove-Item Env:PUPPETEER_HEADFUL` 하거나 새 터미널을 쓰면 됩니다.  
+이미 서버가 떠 있다면 환경 변수 대신 **`POST /browser/headful`** 로 전환할 수 있습니다([Health·웜·브라우저 API 상세](#health-check)).
 
 **종료**
 
@@ -207,11 +226,13 @@ docker run -p 3000:3000 puppeteer-api
 
 ## 환경 변수
 
+로컬에서 파일로 관리하려면 저장소 루트에 **`.env.example`을 복사해 `.env`** 를 만들고 값을 넣으면 됩니다. 서버 기동 시 `dotenv`가 `.env`를 읽습니다(파일이 없어도 동작합니다). 운영·Docker에서는 환경 변수나 시크릿 주입 방식을 그대로 쓰면 됩니다.
+
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
 | `PORT` | `3000` | 리스닝 포트 |
 | `PUPPETEER_HEADFUL` | 미설정(권장) | **기본은 헤드리스.** **`1`일 때만** 시작 시 **헤드풀**. PowerShell에서 예전에 `$env:PUPPETEER_HEADFUL="1"` 을 넣었다면 **같은 터미널 세션**에 남아 있어 헤드풀로 뜰 수 있음 → `Remove-Item Env:PUPPETEER_HEADFUL` 또는 새 터미널. 서버 시작 로그에 `PUPPETEER_HEADFUL env=...` 가 출력됨. |
-| `BROWSER_ADMIN_TOKEN` | 미설정 | 설정 시 `POST /browser/headful` 요청에 헤더 `X-Browser-Admin-Token: <값>` 필요. 미설정이면 로컬에서 토큰 없이 전환 가능. |
+| `BROWSER_ADMIN_TOKEN` | 미설정 | 설정 시 `POST /browser/headful`, **`POST /warm/retry`** 에 헤더 `X-Browser-Admin-Token: <값>` 필요. 미설정이면 해당 엔드포인트도 토큰 없이 호출 가능. |
 | `ENABLE_TEST_PAGE` | (활성) | `0` 으로 설정하면 `GET /test` 비활성화 |
 | `PUPPETEER_EXECUTABLE_PATH` | 미설정 | Chromium 실행 파일 **절대 경로**. Docker/Linux에서는 `/usr/bin/chromium` 등. 설정 시 로컬 `.cache/puppeteer` 탐색보다 **우선** |
 | `PUPPETEER_PROXY` | 미설정 | Fiddler 등에 **Chromium XHR**까지 보이게 할 때. 예: `http://127.0.0.1:8888` → `--proxy-server` 로 적용. **`HTTP_PROXY`와 별도** (Node `fetch`용과 무관). |
@@ -222,6 +243,24 @@ docker run -p 3000:3000 puppeteer-api
 | `PUPPETEER_USER_AGENT` | 미설정 | 비어 있으면 Puppeteer 기본 UA에서 Headless 표기만 정리 |
 | `PUPPETEER_NAVIGATOR_LANGUAGES` | `ko-KR,ko,...` | 스텔스 스크립트에 쓸 언어 목록(쉼표 구분) |
 | `PUPPETEER_NO_VM_REINJECT_AFTER_RESTORE` | 미설정 | `1`이면 네비 복구 후 EverSafe VM 자동 재주입 안 함 |
+
+### 웜 세션 (선택)
+
+`WARM_START_URL`을 설정하면 기동 시(및 브라우저 재시작 후) 해당 URL로 이동한 뒤 EverSafe VM을 주입하고 **웜 페이지**를 유지합니다. 이후 **`POST /evaluate/warm`** 으로 같은 페이지에서 XHR 단계만 호출할 수 있습니다.
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `WARM_START_URL` | 미설정 | 설정 시 웜 활성. 기동 시 `goto` 후 VM 주입. 미설정이면 웜 비활성. |
+| `WARM_VM_LOAD_BASE_URL` | (시작 URL에서 유도) | VM 메타·복구용 베이스 URL. 미설정 시 시작 URL의 `origin` + 경로 디렉터리 접두. |
+| `WARM_GOTO_TIMEOUT_MS` | `60000` | 웜 구성 중 `goto`·VM 평가 타임아웃 상한(ms), 5000~600000. |
+| `WARM_COOKIES` | 미설정 | `goto` 전 쿠키 문자열(세션 생성 API와 동일 형식). |
+| `WARM_EXTRA_HEADERS_JSON` | 미설정 | `goto` 시 추가 헤더(JSON 객체 문자열). |
+| `WARM_WAIT_UNTIL_URL_CONTAINS` | 미설정 | `goto` 후 URL에 이 문자열이 포함될 때까지 대기. |
+| `WARM_NAVIGATION_BLOCKED_URL_PREFIXES` | 미설정 | 쉼표로 구분한 차단 접두(네비 정책). |
+| `WARM_NAVIGATION_ALLOWED_URL_PREFIXES` | 미설정 | 쉼표로 구분한 허용 접두. |
+| `WARM_VM_NAVIGATION_GUARD_JSON` | 미설정 | `execute` 의 `vmNavigationGuard` 와 동일 구조의 JSON 문자열. |
+| `WARM_EXTRACT_TNK_SR` | 미설정 | `1`이면 `goto` 후 TNK_SR 추출 시도(로그에 일부 출력). |
+| `WARM_EXTRACT_TNK_SR_WAIT_MS` | `0` | TNK 추출 전 추가 대기(ms), 최대 60000. |
 
 ---
 
@@ -235,7 +274,9 @@ docker run -p 3000:3000 puppeteer-api
 | `/session/destroy` | POST | 세션 파기 |
 | `/session/list` | GET | 활성 세션 목록 |
 | `/evaluate` | POST | Stateless 단발 실행 (세션 없이) |
-| `/health` | GET | 서버 상태 확인 (`headful` 포함) |
+| `/health` | GET | 서버 상태 확인 (`headful`, **`warmEnabled` / `warmReady` / `warmLastError` / `warmSetupInFlight` / `warmUrl`** 포함) |
+| `/evaluate/warm` | POST | 웜 페이지에서 **XHR만** (`targetUrl`+`payload`, `url`/`vmLoadBaseUrl` 불가). 웜 미준비 시 503. |
+| `/warm/retry` | POST | 웜 구성 재실행. `BROWSER_ADMIN_TOKEN` 설정 시 `X-Browser-Admin-Token` 필요. |
 | `/browser/headful` | GET | 현재 헤드풀 여부 `{ "headful": true|false }` |
 | `/browser/headful` | POST | 런타임 헤드풀/헤드리스 전환. 이미 같은 모드면 재시작 생략(`relaunched: false`). Body: `{ "headful": true }` |
 
@@ -532,34 +573,200 @@ docker run -p 3000:3000 puppeteer-api
 
 ---
 
-## Health Check
+<h2 id="health-check">Health·웜·브라우저 API 상세</h2>
+
+운영 모니터링·로드밸런서 헬스체크에는 **`GET /health`** 만으로도 충분합니다. 웜 기능을 쓰는 경우 같은 응답에 웜 관련 필드가 추가됩니다.
 
 ### GET `/health`
+
+**Headers**: 없음(인증 없음).
+
+**Response (200)** — 예시:
 
 ```json
 {
   "status": "ok",
   "browser": true,
-  "sessions": 2,
-  "headful": false
+  "sessions": 0,
+  "headful": false,
+  "warmEnabled": true,
+  "warmReady": true,
+  "warmLastError": null,
+  "warmSetupInFlight": false,
+  "warmUrl": "https://bank.jejubank.co.kr:6443/inbank/websquare/serverTimeZone.wq"
 }
 ```
 
-### 브라우저 모드 (헤드풀 / 헤드리스)
+#### 응답 필드 설명
 
-서버를 끄지 않고 전환하려면 **POST** `/browser/headful` — JSON 본문에 **boolean**만 허용 (`"true"` 문자열 아님).
+| 필드 | 타입 | 의미 |
+|------|------|------|
+| `status` | string | 항상 `"ok"` (200일 때). 프로세스가 요청을 정상 처리했음을 나타냄. |
+| `browser` | boolean | Puppeteer **브라우저 인스턴스가 살아 있으면** `true`. `false`면 Chromium이 아직 없거나 기동 실패 직후 등 비정상 상태. |
+| `sessions` | number | **세션 API**로 열린 페이지 수(`Map` 크기). 웜 전용 페이지는 여기 **포함되지 않음**. |
+| `headful` | boolean | **현재** Chromium이 **헤드풀**(창 표시)로 떠 있으면 `true`, 기본과 같이 헤드리스면 `false`. `POST /browser/headful` 또는 `PUPPETEER_HEADFUL=1` 기동 시 반영. |
+| `warmEnabled` | boolean | 환경 변수 **`WARM_START_URL`이 설정되어** 웜 기능이 켜져 있으면 `true`. 미설정이면 `false`. |
+| `warmReady` | boolean | 웜이 켜져 있고, **웜 전용 탭**에서 `goto` + EverSafe VM 주입까지 **성공**했으면 `true`. 웜 비활성(`warmEnabled: false`)이면 항상 `false`. |
+| `warmLastError` | string \| null | 마지막 웜 구성 실패 메시지. 성공 시 `null`. 브라우저 크래시 직후 등에는 `"browser disconnected"` 등이 남을 수 있음. |
+| `warmSetupInFlight` | boolean | 웜 구성(`기동 직후` / `POST /warm/retry` / 재연결 후)이 **진행 중**이면 `true`. 이 동안 `POST /evaluate/warm`은 같은 락에서 대기. |
+| `warmUrl` | string \| null | 웜이 사용하는 **시작 URL**(`WARM_START_URL`). 웜 비활성이면 `null`. |
+| `warmConfigError` | boolean | (선택) 웜 관련 환경 변수(JSON 등) 파싱 오류 시에만 `true`. 정상이면 필드 자체가 없음. |
 
-```http
-POST /browser/headful
-Content-Type: application/json
+**호출 예시 (curl)**
 
-{"headful": true}
+```bash
+curl -s http://localhost:3000/health | jq .
 ```
 
-응답 예: `{ "ok": true, "headful": true, "relaunched": true, "message": "..." }` — `relaunched`가 **false**이면 이미 같은 모드라 브라우저를 다시 띄우지 않음(세션 유지).
+**호출 예시 (JavaScript `fetch`)**
 
-- 모드가 바뀌면 브라우저가 재시작되고 **열린 세션은 모두 닫힘**. 이후 `session/create`부터 다시 사용.
-- `BROWSER_ADMIN_TOKEN`을 설정한 경우: `X-Browser-Admin-Token: <토큰>` 헤더 필요.
+```javascript
+const r = await fetch("http://localhost:3000/health");
+const j = await r.json();
+console.log(j.headful, j.warmReady, j.warmUrl);
+```
+
+---
+
+### POST `/browser/headful` — 헤드리스 / 헤드풀 전환
+
+서버를 끄지 않고 Chromium 표시 모드만 바꿉니다. **`POST /warm/retry`와는 별개**입니다(웜은 URL·VM만 다시 잡음).
+
+**Headers**
+
+| 헤더 | 필수 | 설명 |
+|------|------|------|
+| `Content-Type` | 예 | `application/json` |
+| `X-Browser-Admin-Token` | 조건부 | 환경 변수 **`BROWSER_ADMIN_TOKEN`** 이 설정된 경우에만 **필수**. 값은 env와 동일. |
+
+**Request Body** — boolean만 허용(문자열 `"true"` 불가).
+
+```json
+{ "headful": true }
+```
+
+**Response (200)**
+
+```json
+{
+  "ok": true,
+  "headful": true,
+  "relaunched": true,
+  "message": "switched to headful"
+}
+```
+
+| 필드 | 의미 |
+|------|------|
+| `ok` | 요청이 수락되었는지. |
+| `headful` | 전환 **후** 현재 모드. |
+| `relaunched` | `true`이면 Chromium을 **닫았다가 다시 띄움**. `false`이면 이미 같은 모드라 **재시작 없음**(세션 유지). |
+| `message` | 사람이 읽기 쉬운 설명. |
+
+- 모드가 바뀌어 재시작되면 **열린 세션은 모두 무효** → `session/create`부터 다시 사용.
+- 재시작 후 웜이 켜져 있으면 서버가 **웜 구성을 자동으로 다시** 수행합니다.
+
+**curl 예시 (토큰 사용 시)**
+
+```bash
+curl -s -X POST http://localhost:3000/browser/headful \
+  -H "Content-Type: application/json" \
+  -H "X-Browser-Admin-Token: YOUR_TOKEN" \
+  -d "{\"headful\":true}"
+```
+
+---
+
+### POST `/evaluate/warm` — 웜 페이지에서 XHR만
+
+**전제**: `WARM_START_URL` 설정 + `warmReady: true`. VM·`goto`는 이미 웜 구성에서 끝난 상태이므로, 이 API는 **`targetUrl` + `payload`** 로 **XHR 단계만** 실행합니다(`lib/evaluate.js`의 XHR 경로와 동일).
+
+**Headers**: `Content-Type: application/json` (Admin 토큰 **불필요**).
+
+**Request Body** — `url`, `vmLoadBaseUrl` 을 넣으면 **400** (웜 전용 규칙).
+
+| 필드 | 필수 | 설명 |
+|------|------|------|
+| `targetUrl` | 예* | XHR POST 대상 URL. |
+| `payload` | 예* | 본문(객체·문자열 등 — 세션 evaluate와 동일 규칙). |
+| `contentType` | 아니오 | 기본 `application/json`. |
+| `timeout` | 아니오 | ms. 기본 30000. |
+| `xhrDelegateToClient` 등 | 아니오 | 세션 evaluate와 동일(본문 캡처 모드 등). |
+
+\* `executeOnPage` 조건상 둘 다 필요.
+
+**Response (200)**
+
+```json
+{
+  "result": { "status": 200, "data": { } },
+  "finalUrl": "https://..."
+}
+```
+
+| 필드 | 의미 |
+|------|------|
+| `result` | XHR 완료 결과(또는 VM+XHR 조합이 아닌 **XHR 단독**과 같은 형태). `xhrDelegateToClient` 사용 시 구조는 [Evaluate 실행 모드](#evaluate-실행-모드) 참고. |
+| `finalUrl` | 요청 처리 직후 웜 페이지의 `page.url()` (가능할 때만). |
+
+**오류**
+
+| HTTP | 조건 |
+|------|------|
+| 400 | `url` / `vmLoadBaseUrl` 포함, 또는 본문 규칙 위반. |
+| 503 | 웜 비활성, 또는 `warmReady` 아님, 구성 진행 중 등. |
+
+**`fetch` 예시**
+
+```javascript
+const r = await fetch("http://localhost:3000/evaluate/warm", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    targetUrl: "https://example.com/api",
+    payload: { key: "value" },
+    timeout: 60000,
+  }),
+});
+const j = await r.json();
+```
+
+---
+
+### POST `/warm/retry` — 웜 구성 다시 실행
+
+`WARM_START_URL`로 다시 `goto` 한 뒤 EverSafe VM을 다시 주입합니다. **헤드리스/헤드풀 전환은 하지 않습니다.**
+
+**Headers**
+
+| 헤더 | 필수 |
+|------|------|
+| `Content-Type` | 예 |
+| `X-Browser-Admin-Token` | `BROWSER_ADMIN_TOKEN` 설정 시 필수 |
+
+**Request Body**: `{}` 가능(추가 필드 없음).
+
+**Response (200)** — 성공 시 예:
+
+```json
+{
+  "ok": true,
+  "state": {
+    "warmEnabled": true,
+    "warmReady": true,
+    "warmLastError": null,
+    "warmSetupInFlight": false,
+    "warmUrl": "https://..."
+  }
+}
+```
+
+| 필드 | 의미 |
+|------|------|
+| `ok` | 웜 구성이 이번 호출에서 성공했는지. |
+| `state` | 직후 `GET /health`와 동일한 웜 관련 필드 스냅샷. |
+
+**오류**: `WARM_START_URL` 미설정 시 **400**, 구성 실패 시 **500**, 동시에 다른 웜 작업 중이면 **429**.
 
 ---
 
@@ -569,8 +776,10 @@ Content-Type: application/json
 
 - **프리셋 모드**: 입력 필드에 URL·Payload·ContentType을 세팅하고 Run → 5단계(create→vm→xhr→cookies→destroy) 자동 실행
 - **수동 모드**: 각 단계별 JSON을 직접 편집 가능 (sessionId는 자동 주입)
-- **Chromium**: 기본 선택은 **헤드리스**; 디버깅 시에만 **헤드풀**. **Run Full Process** / **parallel sessions** 시 선택값으로 `POST /browser/headful` 적용. 옆 `서버: …` 문구는 실제 서버 모드(라디오와 다를 수 있음 — 새로고침 후에도 라디오는 기본 헤드리스)
-- **추가 버튼**: Health Check, List Sessions, 5 parallel /health, 5 parallel sessions, Clear Log
+- **Admin 토큰**: 입력 시 `POST /browser/headful`, `POST /warm/retry` 등에 `X-Browser-Admin-Token`으로 전달됨
+- **Chromium**: 기본 선택은 **헤드리스**; 디버깅 시 **헤드풀** 선택 후 **`서버에 모드 적용`** 버튼으로 `POST /browser/headful`만 호출 가능(라디오만으로는 서버가 안 바뀜). 옆 `서버: headless|headful` 은 `GET /health`의 `headful`과 동기화
+- **웜 테스트** (`WARM_START_URL` 설정 시): `Warm: GET /health`, `Warm: POST /evaluate/warm`, `Warm: POST /warm/retry` — `/warm/retry`는 헤드풀 전환이 **아님**(웜 URL·VM만 재구성)
+- **기타 버튼**: Health Check, List Sessions, 5 parallel /health, 5 parallel sessions, extract u·t(vm), Clear Log
 - 비활성화: `ENABLE_TEST_PAGE=0 node server.js`
 
 ---
@@ -639,6 +848,30 @@ func main() {
 }
 ```
 
+### 웜 API (선택) — Health 확인 후 `evaluate/warm`
+
+`WARM_START_URL`을 쓰는 경우, 주기적으로 `GET /health`로 `warmReady`를 확인한 뒤 XHR만 보냅니다.
+
+```go
+// GET /health — warmReady 가 true 일 때만 evaluate/warm 권장
+resp, _ := http.Get(nodeServer + "/health")
+// ... json.Unmarshal → warmReady, warmUrl 확인
+
+// POST /evaluate/warm — Admin 토큰 불필요. 세션 evaluate의 ③과 동일 필드.
+warmRes, _ := post("/evaluate/warm", map[string]interface{}{
+    "targetUrl": "https://bank.jejubank.co.kr:6443/inbank/itfc/MSOEBB081406S2.do",
+    "payload": map[string]interface{}{
+        "DATA": map[string]interface{}{"iqryDiv": "K"},
+    },
+    "timeout": 60000,
+})
+fmt.Println("warm:", warmRes)
+
+// POST /warm/retry — 웜만 재구성. BROWSER_ADMIN_TOKEN 이 있으면 헤더 필요(위 post()는 헤더 미포함이므로 별도 구현)
+```
+
+운영 코드에서는 `post()`에 `X-Browser-Admin-Token`을 조건부로 붙이거나, `/warm/retry` 전용 `http.NewRequest`를 쓰면 됩니다.
+
 ---
 
 ## 시퀀스 다이어그램
@@ -686,7 +919,8 @@ Client (Go/Test Page)                    NodeServer                         Targ
 | **싱글 브라우저 인스턴스** | 서버 시작 시 1회 실행, 전체 수명 동안 재사용 |
 | **세션 = 페이지** | `sessionId` 하나가 Chromium 페이지 하나에 대응 → 쿠키·로그인 유지 |
 | **세션 타임아웃** | 10분 미사용 시 자동 파기, `evaluate` 호출 시 갱신 |
-| **라우트 분리** | `routes/health.js`, `browser.js`, `session.js` — `server.js`는 등록·의존성 주입 |
+| **라우트 분리** | `routes/health.js`, `browser.js`, `session.js`, `warm.js` — `server.js`는 등록·의존성 주입 |
+| **웜 세션** | `lib/warmSession.js` — `WARM_START_URL` 시 전용 페이지에 goto+VM, `POST /evaluate/warm`(XHR만), `POST /warm/retry` |
 | **네비게이션 정책** | `lib/navigationPolicy.js` — URL 접두 허용/차단, 위반 시 복구·(선택) VM 재주입 |
 | **리소스 차단** | 이미지·폰트·미디어 요청 차단으로 속도 향상 |
 | **자동 복구** | 브라우저 `disconnected` 시 재실행, 기존 세션 전체 정리 |

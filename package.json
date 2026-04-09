@@ -18,6 +18,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "dotenv": "^16.4.7",
     "express": "^5.2.1",
     "puppeteer": "^24.40.0",
     "undici": "^6.21.3"
