@@ -36,7 +36,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY server.js test.js EverSafe.txt ./
+COPY server.js test.js ./
+COPY ever-safe ./ever-safe/
 COPY routes ./routes/
 COPY lib ./lib/
 COPY test ./test/

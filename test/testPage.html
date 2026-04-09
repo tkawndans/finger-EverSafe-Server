@@ -94,6 +94,12 @@
           <input id="pWaitUrlContains" placeholder="비우면 대기 안 함" value="" />
         </div>
       </div>
+      <div class="row" style="margin-top:10px; align-items:center;">
+        <label title="STEP 3 XHR만: 네트워크로 보내지 않고 Puppeteer가 POST 본문 캡처 후 abort. EverSafe 인코딩 결과는 result.xhr.preparedRequest.postData">
+          <input type="checkbox" id="pXhrDelegate" />
+          STEP 3에서 <code>xhrDelegateToClient</code> (본문만 캡처 · 클라이언트가 직접 통신)
+        </label>
+      </div>
     </div>
   </div>
 </div>
@@ -339,16 +345,26 @@ async function runPreset() {
     log("[프리셋] STEP 3: POST /session/evaluate (targetUrl + payload)", "step");
     log("========================================", "step");
     const t2 = Date.now();
-    const ajaxRes = await nodePost("/session/evaluate", {
+    const evalBody = {
       sessionId,
       targetUrl: apiUrl,
       contentType: ct || "application/json",
       payload: requestPayload,
-      timeout
-    });
+      timeout,
+    };
+    if (document.getElementById("pXhrDelegate").checked) {
+      evalBody.xhrDelegateToClient = true;
+      evalBody.xhrCaptureTimeoutMs = timeout;
+    }
+    const ajaxRes = await nodePost("/session/evaluate", evalBody);
     logResponse("[응답] STEP 3 POST /session/evaluate (targetUrl + payload)", ajaxRes, 20000);
     if (ajaxRes.error) throw new Error(ajaxRes.error);
-    log("XHR status(페이지 내): " + (ajaxRes.result && ajaxRes.result.status != null ? ajaxRes.result.status : "N/A"), "info");
+    const r3 = ajaxRes.result;
+    if (r3 && r3.delivery === "client" && r3.preparedRequest) {
+      log("delegate: preparedRequest.postData 길이 = " + (r3.preparedRequest.postData || "").length, "info");
+    } else {
+      log("XHR status(페이지 내): " + (r3 && r3.status != null ? r3.status : "N/A"), "info");
+    }
     log("Elapsed: " + (Date.now() - t2) + "ms", "data");
     resultEl.textContent = JSON.stringify(ajaxRes.result, null, 2);
   } else {

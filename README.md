@@ -40,8 +40,9 @@ NodeServer/
 │   ├── vmScript.js        # EverSafe.txt 읽기, fetchVmScript(테스트용), VM 가드 조합
 │   ├── navigationPolicy.js# 페이지별 URL 접두 허용/차단, 복구 후 VM 재주입
 │   ├── stealth.js         # UA·navigator 등 스텔스
-│   └── urlPrefixMatch.js  # 네비 정책 URL 매칭
-├── EverSafe.txt           # evaluate 시 vmLoadBaseUrl 모드에서 페이지에 주입할 스크립트(비어 있으면 안 됨)
+│   ├── urlPrefixMatch.js  # 네비 정책 URL 매칭
+│   └── xhrCapture.js      # xhrDelegateToClient 시 POST 본문 캡처·abort
+├── ever-safe/EverSafe.txt # VM 주입 스크립트(필수). `EVERSAFE_TXT_PATH`로 다른 파일 지정 가능
 ├── test.js                # ENABLE_TEST_PAGE 시 GET /test
 ├── test/testPage.html
 ├── package.json
@@ -174,7 +175,7 @@ Windows에서 개발한 뒤 **Linux 컨테이너**에서 돌릴 때는 아래만
 | `package.json`, `package-lock.json` | 의존성 잠금 |
 | `server.js` | 메인 진입 |
 | `routes/`, `lib/` | HTTP 라우트·공유 로직 |
-| `EverSafe.txt` | VM 주입 스크립트(비어 있으면 evaluate VM 단계 실패) |
+| `ever-safe/EverSafe.txt` | Docker 이미지에 포함(VM 단계 필수). 로컬과 동일 경로 |
 | `test.js`, `test/testPage.html` | `ENABLE_TEST_PAGE=1` 일 때만 필요하지만 Dockerfile에서 함께 복사 |
 | `Dockerfile`, `.dockerignore`, `docker-compose.yml` | 빌드·실행용 |
 
@@ -215,7 +216,7 @@ docker run -p 3000:3000 puppeteer-api
 | `PUPPETEER_EXECUTABLE_PATH` | 미설정 | Chromium 실행 파일 **절대 경로**. Docker/Linux에서는 `/usr/bin/chromium` 등. 설정 시 로컬 `.cache/puppeteer` 탐색보다 **우선** |
 | `PUPPETEER_PROXY` | 미설정 | Fiddler 등에 **Chromium XHR**까지 보이게 할 때. 예: `http://127.0.0.1:8888` → `--proxy-server` 로 적용. **`HTTP_PROXY`와 별도** (Node `fetch`용과 무관). |
 | `PUPPETEER_PROXY_BYPASS` | 미설정 | 설정 시 Chromium `--proxy-bypass-list`에 전달. 특정 호스트만 프록시 제외할 때. |
-| `EVERSAFE_TXT_PATH` | 미설정 | 설정 시 **절대 경로**로 VM 스크립트 파일 지정. 미설정이면 프로젝트 루트의 `EverSafe.txt` |
+| `EVERSAFE_TXT_PATH` | 미설정 | VM 스크립트 파일. **절대 경로** 또는 **프로젝트 루트 기준 상대 경로**. 미설정 시 **`ever-safe/EverSafe.txt`** |
 | `PUPPETEER_DISABLE_STEALTH` | 미설정 | `1`이면 UA·webdriver 완화 등 스텔스 비활성화(디버깅용) |
 | `PUPPETEER_VIEWPORT_W` / `PUPPETEER_VIEWPORT_H` | `1920` / `1080` | 새 페이지 뷰포트 크기(클램프 적용) |
 | `PUPPETEER_USER_AGENT` | 미설정 | 비어 있으면 Puppeteer 기본 UA에서 Headless 표기만 정리 |
@@ -508,6 +509,26 @@ docker run -p 3000:3000 puppeteer-api
 - **`contentType`**: 생략 시 유일한 기본값 `application/json`. 대상 사이트에 맞게 자유롭게 지정.
 - **`payload`**: 문자열이면 그대로 본문. 객체/배열은 JSON 계열 contentType일 때만 직렬화.
 - **응답 파싱**: 응답의 `Content-Type`에 `json`이 포함되면 `JSON.parse`, 아니면 텍스트(최대 2000자).
+
+### 클라이언트가 직접 통신 (`xhrDelegateToClient`)
+
+`targetUrl` + `payload`가 있을 때 **`xhrDelegateToClient`: `true`**(또는 `delegateXhrToClient`)를 넣으면, 브라우저에서 **실제 네트워크로 요청을 보내지 않고**, EverSafe 등이 적용한 **최종 POST 본문**을 Puppeteer `request` 훅에서 읽은 뒤 요청을 **abort**합니다. 응답 JSON의 `xhr` 필드 예시는 다음과 같습니다.
+
+```json
+{
+  "delivery": "client",
+  "preparedRequest": {
+    "url": "https://…",
+    "postData": "… EverSafe 인코딩 이후 문자열 …",
+    "headers": { "content-type": "…", … }
+  },
+  "browser": { "status": 0, "data": … }
+}
+```
+
+- **`xhrCaptureTimeoutMs`**: 캡처 대기 시간(선택, 기본은 요청 `timeout` 또는 30초 상한).
+- **전제**: EverSafe가 **같은 페이지에서 `XMLHttpRequest`로** `targetUrl`로 보내는 경로여야 하며, 요청 URL은 `targetUrl`과 동일해야 매칭됩니다(쿼리 포함 정규화 비교).
+- **응답 본문**: 서버·브라우저는 대상 API 응답을 받지 않으므로, 이후 통신은 **클라이언트**가 `preparedRequest.postData` 등을 사용해 직접 수행합니다(CORS·인증서 등은 클라이언트 환경에 따름).
 
 ---
 

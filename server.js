@@ -5,6 +5,7 @@ const puppeteer = require("puppeteer");
 const { EnvHttpProxyAgent, setGlobalDispatcher } = require("undici");
 
 const nav = require("./lib/navigationPolicy");
+const xhrCapture = require("./lib/xhrCapture");
 const stealth = require("./lib/stealth");
 const { fetchVmScript } = require("./lib/vmScript");
 const { STEALTH_ENABLED, mergeStealthHeaders, applyPageStealth } = stealth;
@@ -130,6 +131,9 @@ async function createPage() {
   await page.setRequestInterception(true);
   nav.attachNavigationBlockRecovery(page);
   page.on("request", (req) => {
+    if (xhrCapture.handleRequestInCapture(page, req)) {
+      return;
+    }
     const t = req.resourceType();
     if (["image", "font", "media"].includes(t)) {
       req.abort();

@@ -1,0 +1,2 @@
+# 저장소에서는 LF로 통일 → Windows에서도 Git이 CRLF로만 덮어쓰지 않게 맞춤
+* text=auto eol=lf

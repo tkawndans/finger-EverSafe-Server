@@ -25,7 +25,7 @@ NodeServer/
 │   ├── navigationPolicy.js
 │   ├── stealth.js
 │   └── urlPrefixMatch.js
-├── EverSafe.txt
+├── ever-safe/EverSafe.txt
 ├── test.js
 ├── test/testPage.html
 ├── package.json
