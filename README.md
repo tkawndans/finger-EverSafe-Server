@@ -23,6 +23,7 @@ Go 등 외부 서버에서 REST API로 호출하여 **보안 모듈(EverSafe.txt
 12. [연동 예시 (Go)](#연동-예시-go)
 13. [시퀀스 다이어그램](#시퀀스-다이어그램)
 14. [Docker (Linux)](#docker-linux)
+15. [Windows 개발 → Linux Docker 서버 배포](#windows-linux-docker-deploy)
 
 ---
 
@@ -221,6 +222,85 @@ docker run -p 3000:3000 puppeteer-api
 - `PORT` — 기본 `3000`
 - `PUPPETEER_EXECUTABLE_PATH` — Dockerfile에서 `/usr/bin/chromium` 로 고정 가능
 - `ENABLE_TEST_PAGE` — 운영에서는 `0` 권장(기본값 Dockerfile에 반영)
+- 루트 **`docker-compose.yml`** 에 `env_file: .env` 가 있으므로, **서버에만** 두는 `.env` 가 컨테이너 환경 변수로 주입됩니다(Git에는 없음).
+
+---
+
+<h2 id="windows-linux-docker-deploy">Windows 개발 → Linux Docker 서버 배포</h2>
+
+로컬은 **Windows 11**에서 편집하고, 운영은 **Ubuntu 등 Linux** 위 **Docker** 로 올리는 흐름을 기준으로 정리합니다.
+
+### 사전 준비
+
+| 구분 | 내용 |
+|------|------|
+| **소스 저장소** | GitHub **Public** 이면 서버에서 `git clone` 만으로 받을 수 있음. **Private** 이면 HTTPS(PAT) 또는 SSH 키 인증 필요. |
+| **Windows** | 코드 수정·푸시에 **Git** 사용. 로컬에서 Docker 이미지를 만들어 보려면 **Docker Desktop** 설치(선택). `docker` 명령이 없으면 Desktop 미설치 또는 PATH 문제. |
+| **Linux Docker 서버** | **Docker** + **Docker Compose** 플러그인. `git` 은 기본 설치 안 되어 있는 경우가 많음 → `sudo apt update && sudo apt install -y git` 등으로 설치. |
+| **서버 호스트에 Node/npm/Chromium 설치** | **불필요**. 의존성·Node 버전·Chromium은 **`docker compose build` 시 Dockerfile 안**에서 처리됨. |
+
+### 최초 배포 (서버에서)
+
+1. **저장소 클론** (Public 예시)  
+   ```bash
+   cd /opt   # 원하는 경로
+   git clone https://github.com/<사용자명>/<저장소명>.git
+   cd <저장소명>
+   ```
+
+2. **환경 파일** — Git에는 `.env` 가 없으므로 서버에서만 생성.  
+   ```bash
+   cp .env.example .env
+   nano .env   # BROWSER_ADMIN_TOKEN, WARM_START_URL 등 기입
+   chmod 600 .env   # 권장
+   ```
+
+3. **빌드 및 기동**  
+   ```bash
+   docker compose up -d --build
+   ```
+
+4. **동작 확인**  
+   ```bash
+   curl -s http://127.0.0.1:3000/health
+   docker compose logs -f
+   ```
+
+5. **방화벽** — 외부에서 접속할 경우 3000(또는 사용 중인 포트) 허용.
+
+### 이후 코드 수정 후 재배포
+
+**Windows(개발 PC)**
+
+```powershell
+git add .
+git commit -m "변경 요약"
+git push
+```
+
+**Linux Docker 서버**
+
+```bash
+cd /path/to/<저장소명>
+git pull
+docker compose up -d --build
+```
+
+- 서버의 **`.env`는 `git pull` 로 덮어쓰이지 않음** (저장소에 포함되지 않음).
+- `Dockerfile` · `package.json` · 앱 소스가 바뀌면 **`--build` 로 이미지를 다시 만드는 것**이 안전합니다.
+
+### tar 이미지로 옮기는 방식(선택)
+
+Git을 쓰지 않을 때만 참고. Windows 등에서 `docker save -o app.tar <이미지:태그>` 후 서버에서 `docker load -i app.tar`. 일반적으로는 **Git clone + compose** 가 단순합니다.
+
+### 요약 표
+
+| 단계 | 위치 | 작업 |
+|------|------|------|
+| 개발 | Windows | 수정 → `git push` |
+| 최초 | Linux | `git clone` → `.env` 작성 → `docker compose up -d --build` |
+| 갱신 | Linux | `git pull` → `docker compose up -d --build` |
+| 의존성 | 이미지 내부 | `docker compose build` 시 Dockerfile·`npm ci` 로 처리 |
 
 ---
 
