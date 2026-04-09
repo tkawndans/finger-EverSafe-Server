@@ -3,6 +3,9 @@ services:
     build: .
     ports:
       - "3000:3000"
+    # 서버에만 두는 .env (Git에 없음) — 변수가 컨테이너 process.env 로 전달됨. 파일 없으면 compose 버전에 따라 오류 날 수 있음 → 서버에 반드시 생성.
+    env_file:
+      - .env
     environment:
       PORT: "3000"
       # 헤드리스 기본 (Docker에서는 창 없음)
