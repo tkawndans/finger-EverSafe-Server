@@ -186,8 +186,35 @@ function everSafeApiUrl(path) {
   return base() + API_PREFIX + p;
 }
 
-/** 서버 lib/payloadCustomBase64.encodeCustomBase64 와 동일 */
+/** 서버 lib/payloadCustomBase64 — UTF-8 옥텟 기반 encodeCustomBase64 와 동일 */
 const WARM_ALPHABET_LEN = 65;
+const WARM_PAD_INDEX = 64;
+function stringToUtf8Bytes(str) {
+  const bytes = [];
+  const s = String(str);
+  const n = s.length;
+  let i = 0;
+  while (i < n) {
+    const c = s.charCodeAt(i++);
+    if (c < 0x80) {
+      bytes.push(c);
+    } else if (c < 0x800) {
+      bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    } else if (c >= 0xd800 && c <= 0xdbff && i < n) {
+      const c2 = s.charCodeAt(i++);
+      const cp = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
+      bytes.push(
+        0xf0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3f),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f)
+      );
+    } else {
+      bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+  }
+  return bytes;
+}
 function encodeCustomBase64(plain, alphabet) {
   if (plain == null || alphabet == null || alphabet === "") {
     throw new Error("인코딩 입력이 올바르지 않습니다.");
@@ -196,38 +223,33 @@ function encodeCustomBase64(plain, alphabet) {
   if (cleanAlphabet.length !== WARM_ALPHABET_LEN) {
     throw new Error("알파벳 길이가 올바르지 않습니다.");
   }
-  const table = cleanAlphabet.slice(0, 64);
-  const pad = cleanAlphabet[64];
-  const uriStr = encodeURIComponent(String(plain));
-  const bytes = [];
-  for (let i = 0; i < uriStr.length; i++) {
-    const c = uriStr.charCodeAt(i);
-    if (c > 255) {
-      throw new Error("인코딩할 수 없는 문자가 포함되어 있습니다.");
-    }
-    bytes.push(c);
-  }
+  const bytes = stringToUtf8Bytes(String(plain));
   let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const b1 = bytes[i];
-    const b2 = i + 1 < bytes.length ? bytes[i + 1] : 0;
-    const b3 = i + 2 < bytes.length ? bytes[i + 2] : 0;
-    const n = (b1 << 16) | (b2 << 8) | b3;
-    const k1 = (n >> 18) & 63;
-    const k2 = (n >> 12) & 63;
-    const k3 = (n >> 6) & 63;
-    const k4 = n & 63;
-    out += table[k1] + table[k2];
-    if (i + 1 < bytes.length) {
-      out += table[k3];
+  const L = bytes.length;
+  let idx = 0;
+  while (idx < L) {
+    const a = bytes[idx++];
+    const b = idx < L ? bytes[idx++] : NaN;
+    const c = idx < L ? bytes[idx++] : NaN;
+    const p = a >> 2;
+    const q = ((a & 0x03) << 4) | ((Number.isNaN(b) ? 0 : b) >> 4);
+    let rOut;
+    let sOut;
+    if (Number.isNaN(b)) {
+      rOut = WARM_PAD_INDEX;
+      sOut = WARM_PAD_INDEX;
+    } else if (Number.isNaN(c)) {
+      rOut = ((b & 0x0f) << 2) | 0;
+      sOut = WARM_PAD_INDEX;
     } else {
-      out += pad;
+      rOut = ((b & 0x0f) << 2) | (c >> 6);
+      sOut = c & 0x3f;
     }
-    if (i + 2 < bytes.length) {
-      out += table[k4];
-    } else {
-      out += pad;
-    }
+    out +=
+      cleanAlphabet.charAt(p) +
+      cleanAlphabet.charAt(q) +
+      cleanAlphabet.charAt(rOut) +
+      cleanAlphabet.charAt(sOut);
   }
   return out;
 }

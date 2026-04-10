@@ -111,7 +111,35 @@ function nodeWarm_effectiveAdminToken(config) {
   return "";
 }
 
-/** 서버 lib/payloadCustomBase64.encodeCustomBase64 와 동일 (알파벳 65자) */
+/** 문자열 → UTF-8 바이트 (서버 lib/payloadCustomBase64.stringToUtf8Bytes 와 동일) */
+function nodeWarm_stringToUtf8Bytes(str) {
+  var bytes = [];
+  var s = String(str);
+  var n = s.length;
+  var i = 0;
+  while (i < n) {
+    var c = s.charCodeAt(i++);
+    if (c < 0x80) {
+      bytes.push(c);
+    } else if (c < 0x800) {
+      bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    } else if (c >= 0xd800 && c <= 0xdbff && i < n) {
+      var c2 = s.charCodeAt(i++);
+      var cp = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
+      bytes.push(
+        0xf0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3f),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f)
+      );
+    } else {
+      bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+  }
+  return bytes;
+}
+
+/** 서버 lib/payloadCustomBase64.encodeCustomBase64 와 동일 (UTF-8 옥텟 → 커스텀 Base64) */
 function nodeWarm_encodeCustomBase64(plain, alphabet) {
   if (plain == null || alphabet == null || alphabet === "") {
     throw new Error("인코딩 입력이 올바르지 않습니다.");
@@ -120,38 +148,32 @@ function nodeWarm_encodeCustomBase64(plain, alphabet) {
   if (cleanAlphabet.length !== 65) {
     throw new Error("알파벳 길이가 올바르지 않습니다.");
   }
-  var table = cleanAlphabet.substring(0, 64);
-  var pad = cleanAlphabet.charAt(64);
-  var uriStr = encodeURIComponent(String(plain));
-  var bytes = [];
-  for (var bi = 0; bi < uriStr.length; bi++) {
-    var cc = uriStr.charCodeAt(bi);
-    if (cc > 255) {
-      throw new Error("인코딩할 수 없는 문자가 포함되어 있습니다.");
-    }
-    bytes.push(cc);
-  }
+  var PAD_INDEX = 64;
+  var bytes = nodeWarm_stringToUtf8Bytes(String(plain));
   var out = "";
-  for (var j = 0; j < bytes.length; j += 3) {
-    var b1 = bytes[j];
-    var b2 = j + 1 < bytes.length ? bytes[j + 1] : 0;
-    var b3 = j + 2 < bytes.length ? bytes[j + 2] : 0;
-    var nn = (b1 << 16) | (b2 << 8) | b3;
-    var k1 = (nn >> 18) & 63;
-    var k2 = (nn >> 12) & 63;
-    var k3 = (nn >> 6) & 63;
-    var k4 = nn & 63;
-    out += table.charAt(k1) + table.charAt(k2);
-    if (j + 1 < bytes.length) {
-      out += table.charAt(k3);
-    } else {
-      out += pad;
+  var L = bytes.length;
+  var idx = 0;
+  while (idx < L) {
+    var a = bytes[idx++];
+    var b = idx < L ? bytes[idx++] : NaN;
+    var c = idx < L ? bytes[idx++] : NaN;
+    var p = a >> 2;
+    var q = ((a & 0x03) << 4) | ((isNaN(b) ? 0 : b) >> 4);
+    var r = isNaN(b) ? PAD_INDEX : ((b & 0x0f) << 2) | ((isNaN(c) ? 0 : c) >> 6);
+    var s = isNaN(c) ? PAD_INDEX : c & 0x3f;
+    var rOut = r;
+    var sOut = s;
+    if (isNaN(b)) {
+      rOut = PAD_INDEX;
+      sOut = PAD_INDEX;
+    } else if (isNaN(c)) {
+      sOut = PAD_INDEX;
     }
-    if (j + 2 < bytes.length) {
-      out += table.charAt(k4);
-    } else {
-      out += pad;
-    }
+    out +=
+      cleanAlphabet.charAt(p) +
+      cleanAlphabet.charAt(q) +
+      cleanAlphabet.charAt(rOut) +
+      cleanAlphabet.charAt(sOut);
   }
   return out;
 }
