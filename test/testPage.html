@@ -48,6 +48,18 @@
     }
     button.warn { border-color: #f9ab00; color: #fdd663; }
     button.warn:hover { background: #3d3420; }
+    .warm-decode-test {
+      flex: 0 0 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #9aa0a6;
+      margin: 0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .warm-decode-test input { accent-color: #8ab4f8; width: 16px; height: 16px; }
   </style>
 </head>
 <body>
@@ -63,9 +75,9 @@
     <span id="browserHeadStatus"></span>
   </div>
   <div class="status">Base: <span id="baseUrl"></span></div>
-  <div class="admin-token-wrap" title="BROWSER_ADMIN_TOKEN이 있으면: POST …/browser/headful(모드 전환) 및 POST …/warm/retry에 필요. warm/retry는 헤드풀 전환이 아니라 웜 URL·VM만 다시 잡습니다.">
-    <label for="pAdminToken">Admin 토큰 (선택)</label>
-    <input id="pAdminToken" type="text" autocomplete="off" spellcheck="false" placeholder="X-Browser-Admin-Token 값" />
+  <div class="admin-token-wrap" title="서버 .env의 BROWSER_ADMIN_TOKEN과 동일한 65자. POST …/browser/headful·/warm/retry 헤더에도 사용되며, Warm evaluate/warm의 payload 커스텀 Base64 알파벳과도 동일해야 합니다.">
+    <label for="pAdminToken">Admin 토큰 (선택 · 65자면 웜 payload 인코딩에 사용)</label>
+    <input id="pAdminToken" type="text" autocomplete="off" spellcheck="false" placeholder="서버 BROWSER_ADMIN_TOKEN과 동일" />
   </div>
 </div>
 
@@ -145,6 +157,10 @@
   <button id="btnClear">Clear Log</button>
 
   <span class="btn-section-title">웜 · 추가 API (서버에 WARM_START_URL 설정 시)</span>
+  <label class="warm-decode-test" title="운영과 동일한 경로는 인코딩 후 문자열 전송입니다. 체크 시 평문 문자열을 보내 디코드/파싱 오류(400)를 재현할 수 있습니다.">
+    <input type="checkbox" id="pWarmPayloadAsPlainString" />
+    Warm만: ③ payload를 <strong>인코딩 없이</strong> 전송(오류 테스트 · 기본은 인코딩 후 전송)
+  </label>
   <button id="btnWarmHealth" title="GET …/api/v1/ever-safe/health — 웜 필드만 로그에 강조">Warm: GET /health</button>
   <button id="btnWarmEvaluate" class="primary" title="POST …/api/v1/ever-safe/evaluate/warm — 아래 ③ targetUrl·payload로 XHR만 (웜 준비됨 필요)">Warm: POST /evaluate/warm (③ XHR)</button>
   <button id="btnWarmRetry" class="warn" title="POST …/api/v1/ever-safe/warm/retry — 웜(goto+VM)만 다시 실행. 헤드리스/헤드풀 전환 아님. Admin 토큰 필요할 수 있음">Warm: POST /warm/retry</button>
@@ -161,19 +177,66 @@ const resultEl = document.getElementById("result");
 function base() { return NODE || (window.location.origin || ""); }
 
 /**
- * 상대 API 경로 → 절대 URL. 예: apiUrl("/warm/retry") → …/api/v1/ever-safe/warm/retry
+ * 상대 API 경로 → 절대 URL. 예: everSafeApiUrl("/warm/retry") → …/api/v1/ever-safe/warm/retry
  * 테스트 페이지·POST /test/extract-ut 는 프리픽스 없음(별도 호출).
+ * (이름을 apiUrl 로 두지 않음 — runPreset 등에서 const apiUrl = targetUrl 로 덮어쓰면 전역 fetch 가 전부 깨짐)
  */
-function apiUrl(path) {
+function everSafeApiUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return base() + API_PREFIX + p;
+}
+
+/** 서버 lib/payloadCustomBase64.encodeCustomBase64 와 동일 */
+const WARM_ALPHABET_LEN = 65;
+function encodeCustomBase64(plain, alphabet) {
+  if (plain == null || alphabet == null || alphabet === "") {
+    throw new Error("인코딩 입력이 올바르지 않습니다.");
+  }
+  const cleanAlphabet = String(alphabet).replace(/[\s\t\n\r]/g, "");
+  if (cleanAlphabet.length !== WARM_ALPHABET_LEN) {
+    throw new Error("알파벳 길이가 올바르지 않습니다.");
+  }
+  const table = cleanAlphabet.slice(0, 64);
+  const pad = cleanAlphabet[64];
+  const uriStr = encodeURIComponent(String(plain));
+  const bytes = [];
+  for (let i = 0; i < uriStr.length; i++) {
+    const c = uriStr.charCodeAt(i);
+    if (c > 255) {
+      throw new Error("인코딩할 수 없는 문자가 포함되어 있습니다.");
+    }
+    bytes.push(c);
+  }
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b1 = bytes[i];
+    const b2 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const b3 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    const n = (b1 << 16) | (b2 << 8) | b3;
+    const k1 = (n >> 18) & 63;
+    const k2 = (n >> 12) & 63;
+    const k3 = (n >> 6) & 63;
+    const k4 = n & 63;
+    out += table[k1] + table[k2];
+    if (i + 1 < bytes.length) {
+      out += table[k3];
+    } else {
+      out += pad;
+    }
+    if (i + 2 < bytes.length) {
+      out += table[k4];
+    } else {
+      out += pad;
+    }
+  }
+  return out;
 }
 
 document.getElementById("baseUrl").textContent = base() + API_PREFIX;
 
 async function syncBrowserModeFromServer() {
   try {
-    const r = await fetch(apiUrl("/health"));
+    const r = await fetch(everSafeApiUrl("/health"));
     const j = await r.json();
     const el = document.getElementById("browserHeadStatus");
     if (el && typeof j.headful === "boolean") {
@@ -204,7 +267,7 @@ document.getElementById("btnApplyHeadMode").onclick = async () => {
   resultEl.textContent = "";
   try {
     await ensureBrowserModeForRun();
-    const r = await fetch(apiUrl("/health"));
+    const r = await fetch(everSafeApiUrl("/health"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     log("[적용 완료] /health 의 headful=" + j.headful + " (true면 창이 떠야 함)", "info");
@@ -244,7 +307,7 @@ function adminHeaderMap() {
 }
 
 async function nodePost(path, body, opts) {
-  const url = path.startsWith("/test") ? base() + path : apiUrl(path);
+  const url = path.startsWith("/test") ? base() + path : everSafeApiUrl(path);
   const r = await fetch(url, {
     method: "POST",
     headers: {
@@ -271,7 +334,7 @@ async function nodePost(path, body, opts) {
 document.getElementById("btnClear").onclick = () => { logEl.textContent = ""; resultEl.textContent = ""; };
 document.getElementById("btnHealth").onclick = async () => {
   try {
-    const r = await fetch(apiUrl("/health"));
+    const r = await fetch(everSafeApiUrl("/health"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     log("GET /health OK", "info");
@@ -284,6 +347,9 @@ function logWarmSummary(j) {
   if (!j || typeof j !== "object") return;
   if (j.warmEnabled === true) {
     log("[웜] warmReady=" + j.warmReady + ", warmSetupInFlight=" + j.warmSetupInFlight + (j.warmLastError ? ", lastError=" + j.warmLastError : ""), "info");
+    if (j.warmPayloadEncodingReady === false) {
+      log("[웜] 서버 BROWSER_ADMIN_TOKEN 길이가 " + WARM_ALPHABET_LEN + "자가 아니어서 evaluate/warm 페이로드 디코드가 불가합니다.", "err");
+    }
   } else if (j.warmEnabled === false) {
     log("[웜] 비활성(WARM_START_URL 미설정 또는 warmConfigError)", "info");
   }
@@ -292,7 +358,7 @@ function logWarmSummary(j) {
 document.getElementById("btnWarmHealth").onclick = async () => {
   try {
     log("GET /health (웜 필드 확인)", "step");
-    const r = await fetch(apiUrl("/health"));
+    const r = await fetch(everSafeApiUrl("/health"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     logWarmSummary(j);
@@ -304,19 +370,83 @@ document.getElementById("btnWarmHealth").onclick = async () => {
 document.getElementById("btnWarmEvaluate").onclick = async () => {
   logEl.textContent = "";
   resultEl.textContent = "";
+  log("[Warm] POST /evaluate/warm 클릭됨", "step");
   try {
-    const apiUrl = document.getElementById("pTargetUrl").value.trim();
+    const targetUrlStr = document.getElementById("pTargetUrl").value.trim();
     const ct = document.getElementById("pContentType").value.trim();
     const payloadRaw = document.getElementById("pPayload").value.trim();
     const timeout = parseInt(document.getElementById("pTimeout").value, 10) || 60000;
-    if (!apiUrl) {
+    if (!targetUrlStr) {
       log("③ targetUrl이 비어 있습니다.", "err");
+      alert("③ targetUrl(XHR 주소)을 채워 주세요.");
       return;
     }
+    const asPlainString = document.getElementById("pWarmPayloadAsPlainString").checked;
     let requestPayload;
-    try { requestPayload = JSON.parse(payloadRaw); } catch (_) { requestPayload = payloadRaw; }
+    if (asPlainString) {
+      requestPayload = payloadRaw;
+      log("[테스트] 인코딩 없이 payload 문자열 전송 → 디코드/파싱 오류를 기대할 수 있음", "step");
+    } else {
+      if (!payloadRaw) {
+        log("③ payload가 비어 있습니다.", "err");
+        alert("③ payload(JSON)를 채우거나, 오류 테스트만 할 경우「인코딩 없이 전송」을 켜세요.");
+        return;
+      }
+      const alphabet = (document.getElementById("pAdminToken").value || "").trim();
+      if (alphabet.length !== WARM_ALPHABET_LEN) {
+        const msg =
+          "evaluate/warm(인코딩 전송): Admin 토큰 필드에 서버 BROWSER_ADMIN_TOKEN과 동일한 " +
+          WARM_ALPHABET_LEN +
+          "자가 필요합니다. (현재 " +
+          alphabet.length +
+          "자)";
+        log(msg + " — 오류 테스트만 하려면「인코딩 없이 전송」체크.", "err");
+        alert(msg + "\n\n※ 오류 재현만 할 때는 아래 체크박스「인코딩 없이 전송」을 켜세요.");
+        return;
+      }
+      let plainForEncode;
+      try {
+        plainForEncode = JSON.stringify(JSON.parse(payloadRaw));
+      } catch (_) {
+        plainForEncode = payloadRaw;
+      }
+      try {
+        requestPayload = encodeCustomBase64(plainForEncode, alphabet);
+      } catch (e) {
+        log("payload 인코딩 실패: " + (e && e.message ? e.message : e), "err");
+        return;
+      }
+      log("[웜] ③ payload를 커스텀 Base64 문자열로 인코딩하여 전송(운영과 동일)", "step");
+    }
+    let warmHealth = null;
+    try {
+      const hr = await fetch(everSafeApiUrl("/health"));
+      warmHealth = await hr.json();
+      resultEl.textContent = JSON.stringify(warmHealth, null, 2);
+      logWarmSummary(warmHealth);
+      if (warmHealth.warmEnabled === true && warmHealth.warmReady !== true) {
+        log(
+          "[웜] warmReady 가 아직 true가 아닙니다 → evaluate/warm 은 503일 수 있습니다. warmSetupInFlight·warmLastError 를 확인하세요.",
+          "err"
+        );
+      }
+      if (warmHealth.warmEnabled !== true) {
+        log("warmEnabled 가 true가 아닙니다. WARM_START_URL·warmConfigError 를 확인하세요.", "err");
+      }
+      if (!asPlainString && warmHealth.warmPayloadEncodingReady === false) {
+        const msg =
+          "서버 쪽 BROWSER_ADMIN_TOKEN 길이가 " +
+          WARM_ALPHABET_LEN +
+          "자가 아닙니다. .env 를 맞추거나 클라이언트 인코딩과 서버가 같은 토큰인지 확인하세요.";
+        log(msg, "err");
+        alert(msg);
+        return;
+      }
+    } catch (eh) {
+      log("/health 사전 확인 실패: " + String(eh), "err");
+    }
     const body = {
-      targetUrl: apiUrl,
+      targetUrl: targetUrlStr,
       contentType: ct || "application/json",
       payload: requestPayload,
       timeout,
@@ -325,7 +455,7 @@ document.getElementById("btnWarmEvaluate").onclick = async () => {
       body.xhrDelegateToClient = true;
       body.xhrCaptureTimeoutMs = timeout;
     }
-    log("POST /evaluate/warm — 아래 ③ 필드만 사용 (url·vmLoadBaseUrl 없음)", "step");
+    log("POST …/evaluate/warm — 아래 ③ 필드만 사용 (url·vmLoadBaseUrl 없음)", "step");
     const t0 = Date.now();
     const out = await nodePost("/evaluate/warm", body);
     logResponse("[응답] POST /evaluate/warm", out, 20000);
@@ -353,7 +483,7 @@ document.getElementById("btnWarmRetry").onclick = async () => {
 };
 document.getElementById("btnSessions").onclick = async () => {
   try {
-    const r = await fetch(apiUrl("/session/list"));
+    const r = await fetch(everSafeApiUrl("/session/list"));
     const j = await r.json();
     resultEl.textContent = JSON.stringify(j, null, 2);
     log("GET /session/list — " + (j.count || 0) + " sessions", "info");
@@ -365,7 +495,7 @@ document.getElementById("btnParallelHealth").onclick = async () => {
   log("5 parallel /health …", "step");
   const t0 = Date.now();
   const ps = [];
-  for (let i = 0; i < 5; i++) ps.push(fetch(apiUrl("/health")).then(r => r.json()));
+  for (let i = 0; i < 5; i++) ps.push(fetch(everSafeApiUrl("/health")).then(r => r.json()));
   const out = await Promise.all(ps);
   log("done in " + (Date.now() - t0) + "ms", "info");
   resultEl.textContent = JSON.stringify(out, null, 2);
@@ -424,7 +554,7 @@ document.getElementById("btnExtractUt").onclick = async () => {
 async function runPreset() {
   const createUrl = document.getElementById("pCreateUrl").value.trim();
   const vmBaseUrl = document.getElementById("pVmUrl").value.trim();
-  const apiUrl = document.getElementById("pTargetUrl").value.trim();
+  const xhrTargetUrl = document.getElementById("pTargetUrl").value.trim();
   const ct = document.getElementById("pContentType").value.trim();
   const payloadRaw = document.getElementById("pPayload").value.trim();
   const timeout = parseInt(document.getElementById("pTimeout").value) || 60000;
@@ -474,7 +604,7 @@ async function runPreset() {
   }
 
   // STEP 3: XHR
-  if (apiUrl) {
+  if (xhrTargetUrl) {
     log("", "info");
     log("========================================", "step");
     log("[프리셋] STEP 3: POST /session/evaluate (targetUrl + payload)", "step");
@@ -482,7 +612,7 @@ async function runPreset() {
     const t2 = Date.now();
     const evalBody = {
       sessionId,
-      targetUrl: apiUrl,
+      targetUrl: xhrTargetUrl,
       contentType: ct || "application/json",
       payload: requestPayload,
       timeout,

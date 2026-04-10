@@ -11,9 +11,8 @@
  * config 필드:
  *   callbackId   (필수)
  *   targetUrl    (필수)  은행 API 전체 URL (예: HOST_URL + "/inbank/itfc/….do")
- *   payload      (필수)  **객체** 또는 **JSON 문자열** 둘 다 가능.
- *                        기존 nodeSession_run 처럼 var param = "{\"DATA\":…}" 로 만든 문자열을
- *                        그대로 넣어도 됨(서버 body 에서 동일하게 처리).
+ *   payload      (필수)  **객체** 또는 **JSON 문자열**. 전송 시 서버 규격에 맞게 **커스텀 Base64 문자열**로
+ *                        인코딩됨(알파벳 = NODE_BROWSER_ADMIN_TOKEN / config.adminToken, **65자**).
  *   header       BigCommon용 (GET/POST 공통)
  *   adminToken   (선택) POST /warm/retry 시 X-Browser-Admin-Token. 생략 시 아래 NODE_BROWSER_ADMIN_TOKEN 사용
  *   onSuccess(postData)  — EverSafe 처리된 POST 본문 문자열 → BigCommon.getHttpData 로 그대로 전달
@@ -41,12 +40,16 @@
  *   });
  *
  * 상단 NODE_SESSION_HOST 는 Node 서버 주소(예: http://192.168.0.125:3000), targetUrl 은 은행 HOST 와 별개.
- * 상단 NODE_BROWSER_ADMIN_TOKEN 은 서버 BROWSER_ADMIN_TOKEN 과 동일 값을 한 번만 넣으면 됨( warm/retry 전용 ).
+ * 상단 NODE_BROWSER_ADMIN_TOKEN 은 서버 BROWSER_ADMIN_TOKEN 과 동일 값을 한 번만 넣으면 됨(warm/retry 헤더 + evaluate/warm payload 인코딩).
  */
 
 var NODE_SESSION_HOST = "http://192.168.0.125:3000";
 
-/** 서버 .env 의 BROWSER_ADMIN_TOKEN 과 동일. 빈 문자열이면 warm/retry 시 토큰 헤더 안 붙임(서버도 토큰 없을 때). */
+/**
+ * 서버 .env 의 BROWSER_ADMIN_TOKEN 과 동일(65자 권장).
+ * warm/retry 헤더 및 evaluate/warm 의 payload 인코딩 알파벳으로 사용.
+ * 빈 문자열이면 warm/retry 시 토큰 헤더 안 붙음 — 이 경우 evaluate/warm 은 알파벳 부족으로 실패할 수 있음.
+ */
 var NODE_BROWSER_ADMIN_TOKEN = "";
 
 var _global = (function() { return this; })();
@@ -108,6 +111,51 @@ function nodeWarm_effectiveAdminToken(config) {
   return "";
 }
 
+/** 서버 lib/payloadCustomBase64.encodeCustomBase64 와 동일 (알파벳 65자) */
+function nodeWarm_encodeCustomBase64(plain, alphabet) {
+  if (plain == null || alphabet == null || alphabet === "") {
+    throw new Error("인코딩 입력이 올바르지 않습니다.");
+  }
+  var cleanAlphabet = String(alphabet).replace(/[\s\t\n\r]/g, "");
+  if (cleanAlphabet.length !== 65) {
+    throw new Error("알파벳 길이가 올바르지 않습니다.");
+  }
+  var table = cleanAlphabet.substring(0, 64);
+  var pad = cleanAlphabet.charAt(64);
+  var uriStr = encodeURIComponent(String(plain));
+  var bytes = [];
+  for (var bi = 0; bi < uriStr.length; bi++) {
+    var cc = uriStr.charCodeAt(bi);
+    if (cc > 255) {
+      throw new Error("인코딩할 수 없는 문자가 포함되어 있습니다.");
+    }
+    bytes.push(cc);
+  }
+  var out = "";
+  for (var j = 0; j < bytes.length; j += 3) {
+    var b1 = bytes[j];
+    var b2 = j + 1 < bytes.length ? bytes[j + 1] : 0;
+    var b3 = j + 2 < bytes.length ? bytes[j + 2] : 0;
+    var nn = (b1 << 16) | (b2 << 8) | b3;
+    var k1 = (nn >> 18) & 63;
+    var k2 = (nn >> 12) & 63;
+    var k3 = (nn >> 6) & 63;
+    var k4 = nn & 63;
+    out += table.charAt(k1) + table.charAt(k2);
+    if (j + 1 < bytes.length) {
+      out += table.charAt(k3);
+    } else {
+      out += pad;
+    }
+    if (j + 2 < bytes.length) {
+      out += table.charAt(k4);
+    } else {
+      out += pad;
+    }
+  }
+  return out;
+}
+
 function nodeSession_run(config) {
   var cbId = config.callbackId;
   var pollMax = config.healthPollMax || 30;
@@ -123,9 +171,23 @@ function nodeSession_run(config) {
   }
 
   function doEvaluateWarm() {
+    var alphabet = nodeWarm_effectiveAdminToken(config);
+    if (!alphabet || alphabet.length !== 65) {
+      fail("evaluate/warm: 서버 BROWSER_ADMIN_TOKEN 과 동일한 65자가 필요합니다(NODE_BROWSER_ADMIN_TOKEN 또는 config.adminToken)");
+      return;
+    }
+    var payloadPlain =
+      typeof config.payload === "string" ? String(config.payload) : JSON.stringify(config.payload);
+    var encodedPayload;
+    try {
+      encodedPayload = nodeWarm_encodeCustomBase64(payloadPlain, alphabet);
+    } catch (encErr) {
+      fail("evaluate/warm 인코딩 실패: " + (encErr && encErr.message ? encErr.message : encErr));
+      return;
+    }
     var stepParam = JSON.stringify({
       targetUrl: config.targetUrl,
-      payload: config.payload,
+      payload: encodedPayload,
       xhrDelegateToClient: true,
       xhrCaptureTimeoutMs: 60000,
       timeout: 60000

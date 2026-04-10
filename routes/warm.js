@@ -1,4 +1,5 @@
 const warmSession = require("../lib/warmSession");
+const { prepareEvaluateWarmBody } = require("../lib/payloadCustomBase64");
 
 function checkAdminToken(req, res) {
   const token = process.env.BROWSER_ADMIN_TOKEN;
@@ -18,10 +19,11 @@ function registerWarmRoutes(app, deps) {
 
   app.post("/api/v1/ever-safe/evaluate/warm", async (req, res) => {
     try {
-      const { timeout } = req.body || {};
+      const body = prepareEvaluateWarmBody(req.body || {});
+      const { timeout } = body;
       const t = Number(timeout);
       const timeoutMs = Number.isFinite(t) && t > 0 ? Math.min(t, 600_000) : 30_000;
-      const result = await warmSession.evaluateWarm(req.body || {}, timeoutMs, getWarmDeps());
+      const result = await warmSession.evaluateWarm(body, timeoutMs, getWarmDeps());
       const resp = { result };
       const finalUrl = await warmSession.getWarmPageUrl();
       if (finalUrl) resp.finalUrl = finalUrl;

@@ -4,13 +4,12 @@ x-parser-base: &eversafe-base
     dockerfile: Dockerfile
   image: eversafe:latest
   restart: always
-  # 서버에만 두는 .env (Git에 없음) — 변수가 컨테이너 process.env 로 전달됨. 파일 없으면 compose 버전에 따라 오류 날 수 있음 → 서버에 반드시 생성.
+   # 서버에만 두는 .env (Git에 없음) — 변수가 컨테이너 process.env 로 전달됨. 파일 없으면 compose 버전에 따라 오류 날 수 있음 → 서버에 반드시 생성.
   env_file:
     - .env
   environment:
     TZ: Asia/Seoul
-    PORT: "3000"
-    # 헤드리스 기본 (Docker에서는 창 없음)
+     # 헤드리스 기본 (Docker에서는 창 없음)
     PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
     # 테스트 페이지 필요 시 1 로 두고 test/ 폴더가 이미지에 있어야 함 (Dockerfile에 COPY test 있음)
@@ -21,33 +20,124 @@ x-parser-base: &eversafe-base
 services:
   eversafe_1:
     <<: *eversafe-base
+    container_name: eversafe_1
     networks:
       pdfnet:
         ipv4_address: 172.19.0.3
-
   eversafe_2:
     <<: *eversafe-base
+    container_name: eversafe_2
     networks:
       pdfnet:
         ipv4_address: 172.19.0.4
-
   eversafe_3:
     <<: *eversafe-base
+    container_name: eversafe_3
     networks:
       pdfnet:
         ipv4_address: 172.19.0.5
-
   eversafe_4:
     <<: *eversafe-base
+    container_name: eversafe_4
     networks:
       pdfnet:
         ipv4_address: 172.19.0.6
-
   eversafe_5:
     <<: *eversafe-base
+    container_name: eversafe_5
     networks:
       pdfnet:
         ipv4_address: 172.19.0.7
+  eversafe_6:
+    <<: *eversafe-base
+    container_name: eversafe_6
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.8
+  eversafe_7:
+    <<: *eversafe-base
+    container_name: eversafe_7
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.9
+  eversafe_8:
+    <<: *eversafe-base
+    container_name: eversafe_8
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.10
+  eversafe_9:
+    <<: *eversafe-base
+    container_name: eversafe_9
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.11
+  eversafe_10:
+    <<: *eversafe-base
+    container_name: eversafe_10
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.12
+  eversafe_11:
+    <<: *eversafe-base
+    container_name: eversafe_11
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.13
+  eversafe_12:
+    <<: *eversafe-base
+    container_name: eversafe_12
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.14
+  eversafe_13:
+    <<: *eversafe-base
+    container_name: eversafe_13
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.15
+  eversafe_14:
+    <<: *eversafe-base
+    container_name: eversafe_14
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.16
+  eversafe_15:
+    <<: *eversafe-base
+    container_name: eversafe_15
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.17
+  eversafe_16:
+    <<: *eversafe-base
+    container_name: eversafe_16
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.18
+  eversafe_17:
+    <<: *eversafe-base
+    container_name: eversafe_17
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.19
+  eversafe_18:
+    <<: *eversafe-base
+    container_name: eversafe_18
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.20
+  eversafe_19:
+    <<: *eversafe-base
+    container_name: eversafe_19
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.21
+  eversafe_20:
+    <<: *eversafe-base
+    container_name: eversafe_20
+    networks:
+      pdfnet:
+        ipv4_address: 172.19.0.22
 
   jsproxy:
     image: nginx:latest
@@ -59,8 +149,23 @@ services:
       - eversafe_3
       - eversafe_4
       - eversafe_5
+      - eversafe_6
+      - eversafe_7
+      - eversafe_8
+      - eversafe_9
+      - eversafe_10
+      - eversafe_11
+      - eversafe_12
+      - eversafe_13
+      - eversafe_14
+      - eversafe_15
+      - eversafe_16
+      - eversafe_17
+      - eversafe_18
+      - eversafe_19
+      - eversafe_20
     ports:
-      - "8000:8000"
+      - "3000:3000"
     environment:
       TZ: Asia/Seoul
     volumes:
