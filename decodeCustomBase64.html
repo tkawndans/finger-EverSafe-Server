@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>decodeCustomBase64 테스트</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; color: #e8eaed; background: #1a1d23; }
+    h1 { font-size: 1.1rem; font-weight: 600; }
+    p.hint { font-size: 0.85rem; color: #9aa0a6; margin: 6px 0 16px; }
+    label { display: block; font-size: 0.8rem; color: #9aa0a6; margin: 12px 0 6px; }
+    input[type="text"] {
+      width: 100%; box-sizing: border-box; padding: 10px;
+      font-family: ui-monospace, monospace; font-size: 12px;
+      background: #1e2128; border: 1px solid #3c4043; border-radius: 6px; color: #e8eaed;
+    }
+    textarea {
+      width: 100%; box-sizing: border-box; min-height: 88px; padding: 10px;
+      font-family: ui-monospace, monospace; font-size: 12px;
+      background: #1e2128; border: 1px solid #3c4043; border-radius: 6px; color: #e8eaed; resize: vertical;
+    }
+    #out { min-height: 120px; }
+    button {
+      margin-top: 14px; padding: 10px 18px; border-radius: 6px; border: 1px solid #1a73e8;
+      background: #1a73e8; color: #fff; font-size: 14px; cursor: pointer;
+    }
+    button:hover { background: #1967d2; }
+    .err { color: #f28b82; font-size: 0.85rem; margin-top: 8px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>decodeCustomBase64 테스트</h1>
+  <p class="hint">
+    아래 <code>decodeCustomBase64</code>는 <code>lib/payloadCustomBase64.js</code>와 동일합니다(UTF-8 복원 + 구형 URI 스타일 폴백).
+    알파벳(<code>BROWSER_ADMIN_TOKEN</code>, trim 후 <strong>정확히 65자</strong>)는 아래 입력란에 넣습니다.
+  </p>
+
+  <label for="token">BROWSER_ADMIN_TOKEN (알파벳, 65자)</label>
+  <input type="text" id="token" spellcheck="false" autocomplete="off" placeholder="서버 .env 의 BROWSER_ADMIN_TOKEN 전체 문자열" />
+
+  <label for="enc">인코딩된 데이터</label>
+  <textarea id="enc" spellcheck="false" autocomplete="off" placeholder="커스텀 Base64 문자열"></textarea>
+
+  <button type="button" id="btn">디코딩</button>
+  <div id="err" class="err" aria-live="polite"></div>
+
+  <label for="out">디코딩 결과</label>
+  <textarea id="out" readonly placeholder="디코딩 후 여기에 표시"></textarea>
+
+  <script>
+    /* lib/payloadCustomBase64.js — decodeCustomBase64 와 동일 */
+    const ALPHABET_LEN = 65;
+
+    function utf8BytesToString(bytes, start, end) {
+      let st = start;
+      if (st === undefined || st === null) st = 0;
+      let en = end;
+      if (en === undefined || en === null) en = bytes.length;
+      let out = "";
+      let i = st;
+      while (i < en) {
+        const c0 = bytes[i++] & 0xff;
+        if (c0 < 0x80) {
+          out += String.fromCharCode(c0);
+        } else if (c0 < 0xe0) {
+          if (i >= en) break;
+          const c1 = bytes[i++] & 0xff;
+          out += String.fromCharCode(((c0 & 0x1f) << 6) | (c1 & 0x3f));
+        } else if (c0 < 0xf0) {
+          if (i + 1 >= en) break;
+          const c1 = bytes[i++] & 0xff;
+          const c2 = bytes[i++] & 0xff;
+          out += String.fromCharCode(((c0 & 0x0f) << 12) | ((c1 & 0x3f) << 6) | (c2 & 0x3f));
+        } else {
+          if (i + 2 >= en) break;
+          const c1 = bytes[i++] & 0xff;
+          const c2 = bytes[i++] & 0xff;
+          const c3 = bytes[i++] & 0xff;
+          let cp = ((c0 & 0x07) << 18) | ((c1 & 0x3f) << 12) | ((c2 & 0x3f) << 6) | (c3 & 0x3f);
+          cp -= 0x10000;
+          out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+        }
+      }
+      return out;
+    }
+
+    function decodeLegacyPercentAsciiBytes(finalBytes) {
+      let resultText = "";
+      for (let m = 0; m < finalBytes.length; m++) {
+        resultText += String.fromCharCode(finalBytes[m] & 0xff);
+      }
+      resultText = resultText.replace(/[^\x20-\x7E\uAC00-\uD7A3]/g, "");
+      try {
+        resultText = decodeURIComponent(resultText);
+      } catch (_) {}
+      return resultText;
+    }
+
+    function decodeCustomBase64(encryptedData, alphabet) {
+      if (encryptedData == null || alphabet == null || alphabet === "") {
+        return "";
+      }
+
+      const cleanAlphabet = String(alphabet).replace(/[\s\t\n\r]/g, "");
+      let cleanData = String(encryptedData).replace(/[\s\t\n\r]/g, "");
+
+      let decodedUri = cleanData;
+      try {
+        decodedUri = decodeURIComponent(cleanData);
+      } catch (_) {
+        decodedUri = cleanData;
+      }
+
+      const out = [];
+      let outIdx = 0;
+      const len = decodedUri.length;
+
+      for (let i = 0; i < len; i += 4) {
+        const c1 = decodedUri.charAt(i);
+        const c2 = decodedUri.charAt(i + 1);
+        const c3 = decodedUri.charAt(i + 2);
+        const c4 = decodedUri.charAt(i + 3);
+
+        const b1 = cleanAlphabet.indexOf(c1);
+        const b2 = cleanAlphabet.indexOf(c2);
+        const b3 = cleanAlphabet.indexOf(c3);
+        const b4 = cleanAlphabet.indexOf(c4);
+
+        if (b1 === -1 || b2 === -1) {
+          break;
+        }
+
+        out[outIdx++] = (b1 << 2) | (b2 >> 4);
+
+        if (b3 !== -1 && b3 < 64) {
+          out[outIdx++] = ((b2 & 0x0f) << 4) | (b3 >> 2);
+
+          if (b4 !== -1 && b4 < 64) {
+            out[outIdx++] = ((b3 & 0x03) << 6) | b4;
+          }
+        }
+      }
+
+      const correctedBytes = out.slice(0, outIdx);
+
+      let startIndex = -1;
+      for (let k = 0; k < correctedBytes.length; k++) {
+        if (correctedBytes[k] === 123) {
+          startIndex = k;
+          break;
+        }
+      }
+
+      const startPos = startIndex !== -1 ? startIndex : 0;
+      const finalBytes = correctedBytes.slice(startPos);
+
+      const utf8Str = utf8BytesToString(finalBytes, 0, finalBytes.length);
+      try {
+        JSON.parse(utf8Str);
+        return utf8Str;
+      } catch (_) {}
+
+      return decodeLegacyPercentAsciiBytes(finalBytes);
+    }
+
+    document.getElementById("btn").onclick = function () {
+      const errEl = document.getElementById("err");
+      const outEl = document.getElementById("out");
+      errEl.textContent = "";
+      outEl.value = "";
+
+      const alphabet = (document.getElementById("token").value || "").trim();
+      const enc = document.getElementById("enc").value;
+
+      if (alphabet === "") {
+        errEl.textContent = "BROWSER_ADMIN_TOKEN(알파벳)을 입력하세요.";
+        return;
+      }
+      if (alphabet.length !== ALPHABET_LEN) {
+        errEl.textContent = "알파벳 길이 오류: " + ALPHABET_LEN + "자 필요 (현재 " + alphabet.length + "자)";
+        return;
+      }
+      if (enc == null || String(enc).trim() === "") {
+        errEl.textContent = "인코딩된 데이터를 입력하세요.";
+        return;
+      }
+
+      try {
+        outEl.value = decodeCustomBase64(enc, alphabet);
+      } catch (e) {
+        errEl.textContent = String(e && e.message ? e.message : e);
+      }
+    };
+  </script>
+</body>
+</html>

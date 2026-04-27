@@ -1,5 +1,6 @@
 const warmSession = require("../lib/warmSession");
 const { ALPHABET_LEN } = require("../lib/payloadCustomBase64");
+const warmPayloadLog = require("../lib/evaluateWarmPayloadLog");
 
 /**
  * GET /health
@@ -10,7 +11,7 @@ function registerHealthRoutes(app, deps) {
   app.get("/api/v1/ever-safe/health", (_req, res) => {
     const warm = warmSession.getState();
     const tokenTrim = (process.env.BROWSER_ADMIN_TOKEN || "").trim();
-    res.json({
+    const payload = {
       status: "ok",
       browser: !!getBrowser(),
       sessions: getSessions().size,
@@ -23,7 +24,19 @@ function registerHealthRoutes(app, deps) {
       /** POST /evaluate/warm payload 디코드에 필요(BROWSER_ADMIN_TOKEN 정확히 ALPHABET_LEN 자) */
       warmPayloadEncodingReady: tokenTrim.length === ALPHABET_LEN,
       ...(warm.warmConfigError ? { warmConfigError: true } : {}),
-    });
+    };
+
+    if (warmPayloadLog.isEnabled()) {
+      try {
+        warmPayloadLog.append({
+          phase: "http_health",
+          route: "GET /api/v1/ever-safe/health",
+          body: warmPayloadLog.truncateJsonString(payload, 12_000),
+        });
+      } catch (_) {}
+    }
+
+    res.json(payload);
   });
 }
 

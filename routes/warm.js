@@ -1,5 +1,6 @@
 const warmSession = require("../lib/warmSession");
 const { prepareEvaluateWarmBody } = require("../lib/payloadCustomBase64");
+const warmPayloadLog = require("../lib/evaluateWarmPayloadLog");
 
 function checkAdminToken(req, res) {
   const token = process.env.BROWSER_ADMIN_TOKEN;
@@ -19,6 +20,22 @@ function registerWarmRoutes(app, deps) {
 
   app.post("/api/v1/ever-safe/evaluate/warm", async (req, res) => {
     try {
+      if (warmPayloadLog.isEnabled()) {
+        const rb = req.body || {};
+        const enc = rb.payload;
+        try {
+          warmPayloadLog.append({
+            phase: "http_request",
+            route: "POST /api/v1/ever-safe/evaluate/warm",
+            targetUrl: rb.targetUrl,
+            timeout: rb.timeout,
+            xhrDelegateToClient: !!(rb.xhrDelegateToClient || rb.delegateXhrToClient),
+            encodedPayloadLength: typeof enc === "string" ? enc.length : undefined,
+            encodedPayloadHead: typeof enc === "string" ? enc.slice(0, 120) : undefined,
+          });
+        } catch (_) {}
+      }
+
       const body = prepareEvaluateWarmBody(req.body || {});
       const { timeout } = body;
       const t = Number(timeout);
@@ -27,9 +44,32 @@ function registerWarmRoutes(app, deps) {
       const resp = { result };
       const finalUrl = await warmSession.getWarmPageUrl();
       if (finalUrl) resp.finalUrl = finalUrl;
+
+      if (warmPayloadLog.isEnabled()) {
+        try {
+          warmPayloadLog.append({
+            phase: "http_response",
+            route: "POST /api/v1/ever-safe/evaluate/warm",
+            httpStatus: 200,
+            finalUrl: finalUrl || undefined,
+            body: warmPayloadLog.truncateJsonString(resp, 20_000),
+          });
+        } catch (_) {}
+      }
+
       res.json(resp);
     } catch (e) {
       const code = /not ready|not enabled/i.test(e.message) ? 503 : 400;
+      if (warmPayloadLog.isEnabled()) {
+        try {
+          warmPayloadLog.append({
+            phase: "http_error",
+            route: "POST /api/v1/ever-safe/evaluate/warm",
+            httpStatus: code,
+            error: e.message || String(e),
+          });
+        } catch (_) {}
+      }
       res.status(code).json({ error: e.message });
     }
   });
