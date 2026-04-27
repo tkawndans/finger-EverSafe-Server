@@ -1,6 +1,6 @@
 {
   "name": "node-js-executor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Node.js server that executes JavaScript code in a real browser environment via Puppeteer",
   "main": "server.js",
   "scripts": {

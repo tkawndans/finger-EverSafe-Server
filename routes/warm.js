@@ -2,6 +2,7 @@ const warmSession = require("../lib/warmSession");
 const { prepareEvaluateWarmBody } = require("../lib/payloadCustomBase64");
 const { buildHealthSnapshot } = require("../lib/healthPayload");
 const warmPayloadLog = require("../lib/evaluateWarmPayloadLog");
+const { appendEvaluateWarmIdentityHeaders } = require("../lib/instanceIdentity");
 
 function checkAdminToken(req, res) {
   const token = process.env.BROWSER_ADMIN_TOKEN;
@@ -134,6 +135,7 @@ function registerWarmRoutes(app, deps) {
         } catch (_) {}
       }
 
+      appendEvaluateWarmIdentityHeaders(res);
       res.json(resp);
     } catch (e) {
       const code = /not ready|not enabled/i.test(e.message) ? 503 : 400;
@@ -147,6 +149,7 @@ function registerWarmRoutes(app, deps) {
           });
         } catch (_) {}
       }
+      appendEvaluateWarmIdentityHeaders(res);
       res.status(code).json({ error: e.message, health: healthForThisInstance() });
     }
   });
