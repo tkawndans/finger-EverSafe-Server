@@ -258,6 +258,9 @@ registerBrowserRoutes(app, {
 });
 registerWarmRoutes(app, {
   getWarmDeps,
+  getBrowser: () => browser,
+  getSessions: () => sessions,
+  getHeadful: () => headful,
 });
 registerSessionRoutes(app, {
   sessions,
