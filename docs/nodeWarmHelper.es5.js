@@ -54,6 +54,55 @@ var NODE_BROWSER_ADMIN_TOKEN = "";
 
 var _global = (function() { return this; })();
 
+/** POSTHEADERBODY 등: `Key:[value]` 줄들 + JSON. 본문만 분리 */
+function nodeWarm_extractJsonStringForParse(s) {
+  if (typeof s !== "string") {
+    return s;
+  }
+  var t = s.replace(/^\uFEFF/, "").trim();
+  if (t.length === 0) {
+    return t;
+  }
+  var c0 = t.charAt(0);
+  if (c0 === "{" || c0 === "[") {
+    return t;
+  }
+  var br = t.indexOf("\r\n\r\n");
+  if (br >= 0) {
+    var body = t.slice(br + 4).replace(/^\s+/, "");
+    if (body.length && (body.charAt(0) === "{" || body.charAt(0) === "[")) {
+      return body;
+    }
+  }
+  br = t.indexOf("\n\n");
+  if (br >= 0) {
+    var body2 = t.slice(br + 2).replace(/^\s+/, "");
+    if (body2.length && (body2.charAt(0) === "{" || body2.charAt(0) === "[")) {
+      return body2;
+    }
+  }
+  var lines = t.split(/\r\n|\r|\n/);
+  var li;
+  for (li = 0; li < lines.length; li++) {
+    var L = lines[li].replace(/^\s+/, "");
+    if (!L.length) {
+      continue;
+    }
+    if (L.charAt(0) === "{" || L.charAt(0) === "[") {
+      return lines.slice(li).join("\n");
+    }
+  }
+  var i = t.indexOf("{");
+  if (i >= 0) {
+    return t.slice(i);
+  }
+  var j = t.indexOf("[");
+  if (j >= 0) {
+    return t.slice(j);
+  }
+  return t;
+}
+
 /** ret.result 문자열을 JSON 객체로 */
 function nodeWarm_parseResponseBody(ret) {
   var raw = ret;
@@ -61,6 +110,18 @@ function nodeWarm_parseResponseBody(ret) {
     raw = ret.result;
   }
   var s = typeof raw === "string" ? raw : JSON.stringify(raw);
+  s = nodeWarm_extractJsonStringForParse(s);
+  if (typeof s !== "string") {
+    try {
+      s = JSON.stringify(s);
+    } catch (_e2) {
+      s = String(s);
+    }
+  }
+  s = s.replace(/^\uFEFF/, "").trim();
+  if (!s.length) {
+    throw new Error("응답 본문이 비어 있어 JSON으로 파싱할 수 없습니다");
+  }
   return JSON.parse(s);
 }
 

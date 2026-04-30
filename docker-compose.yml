@@ -4,6 +4,19 @@ x-parser-base: &eversafe-base
     dockerfile: Dockerfile
   image: eversafe:latest
   restart: always
+  deploy:
+    resources:
+      limits:
+        cpus: "0.7"
+        memory: 800M
+      reservations:
+        memory: 512M
+  healthcheck:
+    test: ["CMD-SHELL", "pgrep -f '/usr/lib/chromium/chromium' > /dev/null || exit 1"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
    # 서버에만 두는 .env (Git에 없음) — 변수가 컨테이너 process.env 로 전달됨. 파일 없으면 compose 버전에 따라 오류 날 수 있음 → 서버에 반드시 생성.
   env_file:
     - .env
