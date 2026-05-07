@@ -138,8 +138,87 @@ setInterval(() => {
 
 /* ─────────────────── Page (lib: navigationPolicy, stealth, evaluate, vmScript) ─────────────────── */
 
-async function createPage() {
+/** 락 모드 블록 진단 로깅: 동일 URL 은 60초 윈도우 내 한 번만 출력 */
+const lockBlockLogState = new WeakMap();
+
+function logLockBlockedNavigation(page, req) {
+  let state = lockBlockLogState.get(page);
+  const now = Date.now();
+  if (!state) {
+    state = { recent: new Map() };
+    lockBlockLogState.set(page, state);
+  }
+  for (const [u, ts] of state.recent) {
+    if (now - ts > 60_000) state.recent.delete(u);
+  }
+  const url = req.url();
+  if (state.recent.has(url)) return;
+  state.recent.set(url, now);
+
+  let init;
+  try { init = req.initiator && req.initiator(); } catch (_) { init = null; }
+  const headers = req.headers ? req.headers() : {};
+  const referer = headers.referer || headers.Referer || "";
+
+  /** 모든 스택 프레임을 평탄화 (parent stack 까지). 동적 코드(eval) 위쪽 진짜 호출자 식별용. */
+  const flattenFrames = (initObj) => {
+    const out = [];
+    let cur = initObj && initObj.stack;
+    while (cur) {
+      if (Array.isArray(cur.callFrames)) {
+        for (const f of cur.callFrames) out.push(f);
+      }
+      cur = cur.parent;
+    }
+    return out;
+  };
+
+  const lines = [];
+  lines.push(`[warm-lock] BLOCKED main nav → ${url}`);
+  if (init) {
+    lines.push(
+      `  initiator.type=${init.type || "?"}` +
+        (init.url ? ` url=${init.url}` : "") +
+        (init.lineNumber != null ? `:${init.lineNumber}` : "")
+    );
+    const frames = flattenFrames(init);
+    const max = Math.min(frames.length, 8);
+    for (let i = 0; i < max; i++) {
+      const f = frames[i];
+      const fn = f.functionName || "<anon>";
+      const u = f.url || "<no-url>";
+      const ln = f.lineNumber != null ? f.lineNumber : "?";
+      const col = f.columnNumber != null ? `:${f.columnNumber}` : "";
+      lines.push(`    #${i} ${fn} @ ${u}:${ln}${col}`);
+    }
+  }
+  if (referer) lines.push(`  referer=${referer}`);
+  console.log(lines.join("\n"));
+}
+
+/** 환경변수로 지정한 URL 패턴들 — 매칭되는 요청은 빈 200/204 로 응답해 **로딩 자체를 차단**한다.
+ *  사용 예: 락 모드 헤드풀 진단 로그에서 식별한 redirect 트리거 스크립트 URL 부분 문자열들을 콤마 구분으로 지정.
+ *  예) `WARM_LOCK_BLOCK_REQUEST_URL_PATTERNS=/inbank/ws/pr/ma/PRMA01001.do,/some/redirect-script.js` */
+function getLockBlockRequestUrlPatterns() {
+  const raw = (process.env.WARM_LOCK_BLOCK_REQUEST_URL_PATTERNS || "").trim();
+  if (!raw) return [];
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function matchesAnyPattern(url, patterns) {
+  if (!patterns.length) return false;
+  for (const p of patterns) if (url.includes(p)) return true;
+  return false;
+}
+
+/**
+ * @param {{ skipNavigationBlockRecovery?: boolean }} [opts]
+ * - `skipNavigationBlockRecovery`: true면 `framenavigated`/`load`/`requestfailed` 기반 **goBack/goto 복구**를 붙이지 않음.
+ *   워밍 페이지처럼 메인 네비를 인터셉션 단의 204/abort 만으로 “원천 차단”할 때 사용 (복구 goBack/goto 없음).
+ */
+async function createPage(opts = {}) {
   const page = await browser.newPage();
+  const skipRecovery = opts && opts.skipNavigationBlockRecovery === true;
   const { width, height } = parseViewportSize();
   await page.setViewport({
     width,
@@ -150,7 +229,9 @@ async function createPage() {
   });
   await applyPageStealth(page, browser);
   await page.setRequestInterception(true);
-  nav.attachNavigationBlockRecovery(page);
+  if (!skipRecovery) {
+    nav.attachNavigationBlockRecovery(page);
+  }
   page.on("request", (req) => {
     if (xhrCapture.handleRequestInCapture(page, req)) {
       return;
@@ -160,8 +241,45 @@ async function createPage() {
       req.abort();
       return;
     }
+
+    /**
+     * 사용자 지정 패턴 매칭(부분 문자열) 시 로딩 자체를 차단.
+     * 스크립트/텍스트류는 빈 200, 그 외(특히 document)는 204 로 응답해 페이지 영향 최소화.
+     */
+    const blockPatterns = getLockBlockRequestUrlPatterns();
+    if (blockPatterns.length && matchesAnyPattern(req.url(), blockPatterns)) {
+      const isDoc = t === "document";
+      const isScript = t === "script";
+      if (isDoc) {
+        req.respond({ status: 204, headers: {}, body: "" }).catch(() => {
+          try { req.abort(); } catch (_) { /* ignore */ }
+        });
+      } else if (isScript) {
+        req
+          .respond({ status: 200, headers: { "content-type": "application/javascript; charset=utf-8" }, body: "" })
+          .catch(() => {
+            try { req.abort(); } catch (_) { /* ignore */ }
+          });
+      } else {
+        req.abort();
+      }
+      return;
+    }
+
     if (nav.shouldAbortMainFrameNavigation(req, page)) {
-      req.abort();
+      /**
+       * 워밍 페이지: abort 대신 204 No Content 응답.
+       * - abort 시 Chrome 은 원래 문서를 언로드하고 ERR_FAILED 페이지로 바꾸며 URL 바도 시도된 URL 로 이동.
+       * - 204 는 "성공했지만 새 콘텐츠 없음" 이라 브라우저가 원래 문서를 그대로 유지 (URL 바 변동 없음).
+       */
+      if (nav.isExactNavigationLockActive(page)) {
+        try { logLockBlockedNavigation(page, req); } catch (_) { /* ignore */ }
+        req.respond({ status: 204, headers: {}, body: "" }).catch(() => {
+          try { req.abort(); } catch (_) { /* ignore */ }
+        });
+      } else {
+        req.abort();
+      }
       return;
     }
     req.continue();
