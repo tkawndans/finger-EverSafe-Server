@@ -7,16 +7,10 @@ x-parser-base: &eversafe-base
   deploy:
     resources:
       limits:
-        cpus: "0.7"
+        cpus: '0.7'
         memory: 800M
       reservations:
         memory: 512M
-  healthcheck:
-    test: ["CMD-SHELL", "pgrep -f '/usr/lib/chromium/chromium' > /dev/null || exit 1"]
-    interval: 30s
-    timeout: 10s
-    retries: 3
-    start_period: 30s
    # 서버에만 두는 .env (Git에 없음) — 변수가 컨테이너 process.env 로 전달됨. 파일 없으면 compose 버전에 따라 오류 날 수 있음 → 서버에 반드시 생성.
   env_file:
     - .env
@@ -27,6 +21,12 @@ x-parser-base: &eversafe-base
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
     # 테스트 페이지 필요 시 1 로 두고 test/ 폴더가 이미지에 있어야 함 (Dockerfile에 COPY test 있음)
     ENABLE_TEST_PAGE: "0"
+  healthcheck:
+    test: ["CMD-SHELL", "pgrep -f '/usr/lib/chromium/chromium' > /dev/null || exit 1"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 30s
   networks:
     pdfnet: {}
 
@@ -79,79 +79,7 @@ services:
     networks:
       pdfnet:
         ipv4_address: 172.19.0.10
-  eversafe_9:
-    <<: *eversafe-base
-    container_name: eversafe_9
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.11
-  eversafe_10:
-    <<: *eversafe-base
-    container_name: eversafe_10
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.12
-  eversafe_11:
-    <<: *eversafe-base
-    container_name: eversafe_11
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.13
-  eversafe_12:
-    <<: *eversafe-base
-    container_name: eversafe_12
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.14
-  eversafe_13:
-    <<: *eversafe-base
-    container_name: eversafe_13
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.15
-  eversafe_14:
-    <<: *eversafe-base
-    container_name: eversafe_14
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.16
-  eversafe_15:
-    <<: *eversafe-base
-    container_name: eversafe_15
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.17
-  eversafe_16:
-    <<: *eversafe-base
-    container_name: eversafe_16
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.18
-  eversafe_17:
-    <<: *eversafe-base
-    container_name: eversafe_17
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.19
-  eversafe_18:
-    <<: *eversafe-base
-    container_name: eversafe_18
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.20
-  eversafe_19:
-    <<: *eversafe-base
-    container_name: eversafe_19
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.21
-  eversafe_20:
-    <<: *eversafe-base
-    container_name: eversafe_20
-    networks:
-      pdfnet:
-        ipv4_address: 172.19.0.22
-
+ 
   jsproxy:
     image: nginx:latest
     container_name: jsproxy
@@ -165,18 +93,6 @@ services:
       - eversafe_6
       - eversafe_7
       - eversafe_8
-      - eversafe_9
-      - eversafe_10
-      - eversafe_11
-      - eversafe_12
-      - eversafe_13
-      - eversafe_14
-      - eversafe_15
-      - eversafe_16
-      - eversafe_17
-      - eversafe_18
-      - eversafe_19
-      - eversafe_20
     ports:
       - "3000:3000"
     environment:
